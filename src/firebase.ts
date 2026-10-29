@@ -1,6 +1,8 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
+  GoogleAuthProvider,
+  signInWithCredential,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   updateProfile,
@@ -15,6 +17,7 @@ import {
   setDoc,
   serverTimestamp,
 } from 'firebase/firestore';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import type { UserProfile } from './types';
 
 export const firebaseConfig = {
@@ -27,13 +30,109 @@ export const firebaseConfig = {
   measurementId: "G-6Q1V1S0YSF",
 };
 
+export const GOOGLE_WEB_CLIENT_ID =
+  "383505732079-pd5h25jo1pbjrmd2b3e9t4jfup9hrfg6.apps.googleusercontent.com";
+
+// Configure default native Google Sign-In with official Web Client ID
+try {
+  GoogleSignin.configure({
+    webClientId: GOOGLE_WEB_CLIENT_ID,
+    scopes: ['profile', 'email'],
+    offlineAccess: false,
+  });
+} catch (e) {
+  console.warn('GoogleSignin configure notice:', e);
+}
+
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
 /**
+ * Maps a Firebase user and optional Firestore data to the app's UserProfile
+ */
+export function mapFirebaseUserToProfile(
+  firebaseUser: FirebaseUser,
+  firestoreData?: any
+): UserProfile {
+  const derivedName =
+    firebaseUser.displayName ||
+    firestoreData?.displayName ||
+    firebaseUser.email?.split('@')[0] ||
+    'Goodreads Reader';
+
+  const avatar =
+    firebaseUser.photoURL ||
+    firestoreData?.photoURL ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(
+      derivedName
+    )}&background=00635D&color=fff&size=160`;
+
+  const isGoogle = Boolean(
+    firebaseUser.providerData?.some(p => p.providerId === 'google.com')
+  );
+
+  return {
+    id: firebaseUser.uid,
+    name: derivedName,
+    email: firebaseUser.email || '',
+    avatar,
+    isGoogleUser: isGoogle,
+    booksReadCount: firestoreData?.booksReadCount ?? 0,
+    wantToReadCount: firestoreData?.wantToReadCount ?? 0,
+    currentlyReadingCount: firestoreData?.currentlyReadingCount ?? 0,
+    readingChallengeGoal: firestoreData?.readingChallengeGoal ?? 20,
+    readingChallengeProgress: firestoreData?.readingChallengeProgress ?? 0,
+  };
+}
+
+/**
+ * Synchronizes user data with Firestore `users/{uid}` collection
+ */
+async function syncUserWithFirestore(firebaseUser: FirebaseUser): Promise<any> {
+  let firestoreData: any = null;
+  try {
+    const userDocRef = doc(db, 'users', firebaseUser.uid);
+    const userDocSnap = await getDoc(userDocRef);
+
+    if (userDocSnap.exists()) {
+      firestoreData = userDocSnap.data();
+      if (firestoreData?.disabled === true) {
+        await signOut(auth);
+        throw new Error('Your account has been disabled by an administrator.');
+      }
+    } else {
+      const name =
+        firebaseUser.displayName ||
+        firebaseUser.email?.split('@')[0] ||
+        'Goodreads Reader';
+
+      const photoURL =
+        firebaseUser.photoURL ||
+        `https://ui-avatars.com/api/?name=${encodeURIComponent(
+          name
+        )}&background=00635D&color=fff&size=160`;
+
+      firestoreData = {
+        displayName: name,
+        email: firebaseUser.email || '',
+        photoURL,
+        createdAt: serverTimestamp(),
+        disabled: false,
+      };
+      await setDoc(userDocRef, firestoreData);
+    }
+  } catch (firestoreError: any) {
+    if (firestoreError?.message?.includes('disabled by an administrator')) {
+      throw firestoreError;
+    }
+    console.warn('Firestore user sync notice:', firestoreError);
+  }
+  return firestoreData;
+}
+
+/**
  * Register a new user in Firebase Authentication and Cloud Firestore
- * in adherence with prompt_requirements.md Section 1 Data Model.
  */
 export async function registerWithFirebase(
   name: string,
@@ -60,32 +159,8 @@ export async function registerWithFirebase(
     console.warn('Update profile warning:', e);
   }
 
-  // Register user document in Cloud Firestore (users/{uid})
-  try {
-    const userDocRef = doc(db, 'users', user.uid);
-    await setDoc(userDocRef, {
-      displayName: name.trim(),
-      email: email.trim().toLowerCase(),
-      photoURL: avatar,
-      createdAt: serverTimestamp(),
-      disabled: false,
-    });
-  } catch (e) {
-    console.warn('Firestore user registration warning:', e);
-  }
-
-  return {
-    id: user.uid,
-    name: name.trim(),
-    email: email.trim().toLowerCase(),
-    avatar,
-    isGoogleUser: false,
-    booksReadCount: 0,
-    wantToReadCount: 0,
-    currentlyReadingCount: 0,
-    readingChallengeGoal: 20,
-    readingChallengeProgress: 0,
-  };
+  const firestoreData = await syncUserWithFirestore(user);
+  return mapFirebaseUserToProfile(user, firestoreData);
 }
 
 /**
@@ -100,146 +175,56 @@ export async function signInWithFirebase(
     email.trim().toLowerCase(),
     password
   );
-  const user = credential.user;
-
-  let firestoreData: any = null;
-  try {
-    const userDocRef = doc(db, 'users', user.uid);
-    const userSnap = await getDoc(userDocRef);
-    if (userSnap.exists()) {
-      firestoreData = userSnap.data();
-      if (firestoreData?.disabled === true) {
-        await signOut(auth);
-        throw new Error('Your account has been disabled by an administrator.');
-      }
-    }
-  } catch (e: any) {
-    if (e.message?.includes('disabled by an administrator')) {
-      throw e;
-    }
-    console.warn('Firestore sign in check notice:', e);
-  }
-
-  return {
-    id: user.uid,
-    name: user.displayName || firestoreData?.displayName || email.split('@')[0],
-    email: user.email || email,
-    avatar:
-      user.photoURL ||
-      firestoreData?.photoURL ||
-      `https://ui-avatars.com/api/?name=${encodeURIComponent(
-        user.displayName || 'Reader'
-      )}&background=00635D&color=fff&size=160`,
-    isGoogleUser: false,
-    booksReadCount: firestoreData?.booksReadCount ?? 0,
-    wantToReadCount: firestoreData?.wantToReadCount ?? 0,
-    currentlyReadingCount: firestoreData?.currentlyReadingCount ?? 0,
-    readingChallengeGoal: firestoreData?.readingChallengeGoal ?? 20,
-    readingChallengeProgress: firestoreData?.readingChallengeProgress ?? 0,
-  };
+  const firestoreData = await syncUserWithFirestore(credential.user);
+  return mapFirebaseUserToProfile(credential.user, firestoreData);
 }
 
 /**
- * Authenticate or Register Google User with Firebase Authentication & Cloud Firestore
+ * Legitimate, default Google Sign-In procedure for React Native:
+ * 1. Checks device Google Play Services
+ * 2. Invokes standard Google Sign-In sheet / account picker
+ * 3. Extracts idToken generated with the Google Web Client ID
+ * 4. Signs into Firebase Auth via GoogleAuthProvider.credential(idToken)
+ * 5. Syncs user with Firestore users/{uid}
  */
-export async function authenticateGoogleUser(acc: {
-  name: string;
-  email: string;
-  avatar: string;
-  password?: string;
-}): Promise<UserProfile> {
-  const cleanEmail = acc.email.trim().toLowerCase();
-  const authPassword =
-    acc.password && acc.password.length >= 6
-      ? acc.password
-      : `GAuth@${cleanEmail.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}!2026`;
+export async function signInWithGoogle(): Promise<UserProfile> {
+  // Check if device supports Google Play Services
+  await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
 
-  let firebaseUser: FirebaseUser | null = null;
+  // Native Google Sign-In dialog
+  const signInResult = await GoogleSignin.signIn();
 
-  // Attempt Firebase Auth sign-in or account creation
-  try {
-    const signCred = await signInWithEmailAndPassword(auth, cleanEmail, authPassword);
-    firebaseUser = signCred.user;
-  } catch (signErr: any) {
-    if (
-      signErr.code === 'auth/user-not-found' ||
-      signErr.code === 'auth/invalid-credential'
-    ) {
-      try {
-        const createCred = await createUserWithEmailAndPassword(
-          auth,
-          cleanEmail,
-          authPassword
-        );
-        firebaseUser = createCred.user;
-        await updateProfile(firebaseUser, {
-          displayName: acc.name,
-          photoURL: acc.avatar,
-        });
-      } catch (createErr: any) {
-        console.warn('Google user Firebase Auth creation notice:', createErr);
-      }
-    } else {
-      console.warn('Google user Firebase Auth sign in notice:', signErr);
-    }
+  // Retrieve idToken from result
+  const idToken =
+    signInResult.data?.idToken ??
+    (signInResult as any).idToken;
+
+  if (!idToken) {
+    throw new Error('Google Sign-In failed: No ID token returned from Google.');
   }
 
-  const uid =
-    firebaseUser?.uid ||
-    `usr_google_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
-
-  // Sync with Cloud Firestore users collection
-  let firestoreData: any = null;
-  try {
-    const userDocRef = doc(db, 'users', uid);
-    const userSnap = await getDoc(userDocRef);
-
-    if (userSnap.exists()) {
-      firestoreData = userSnap.data();
-      if (firestoreData?.disabled === true) {
-        await signOut(auth);
-        throw new Error('Your account has been disabled by an administrator.');
-      }
-    } else {
-      firestoreData = {
-        displayName: acc.name,
-        email: cleanEmail,
-        photoURL: acc.avatar,
-        createdAt: serverTimestamp(),
-        disabled: false,
-      };
-      await setDoc(userDocRef, firestoreData);
-    }
-  } catch (e: any) {
-    if (e.message?.includes('disabled by an administrator')) {
-      throw e;
-    }
-    console.warn('Firestore sync notice:', e);
-  }
-
-  return {
-    id: uid,
-    name: acc.name,
-    email: cleanEmail,
-    avatar: acc.avatar,
-    isGoogleUser: true,
-    booksReadCount: firestoreData?.booksReadCount ?? 0,
-    wantToReadCount: firestoreData?.wantToReadCount ?? 0,
-    currentlyReadingCount: firestoreData?.currentlyReadingCount ?? 0,
-    readingChallengeGoal: firestoreData?.readingChallengeGoal ?? 20,
-    readingChallengeProgress: firestoreData?.readingChallengeProgress ?? 0,
-  };
+  // Authenticate with Firebase using official Google credential
+  const credential = GoogleAuthProvider.credential(idToken);
+  const userCredential = await signInWithCredential(auth, credential);
+  const firestoreData = await syncUserWithFirestore(userCredential.user);
+  return mapFirebaseUserToProfile(userCredential.user, firestoreData);
 }
 
 /**
- * Backward compatibility alias
+ * Backward compatibility alias for any existing callers
  */
-export const syncGoogleUserWithFirestore = authenticateGoogleUser;
+export const authenticateGoogleUser = signInWithGoogle;
+export const syncGoogleUserWithFirestore = signInWithGoogle;
 
 /**
- * Signs out the current Firebase user.
+ * Signs out the current Firebase user and Google Sign-In session.
  */
 export async function signOutUser(): Promise<void> {
+  try {
+    await GoogleSignin.signOut();
+  } catch (e) {
+    // Non-blocking if user was not signed in via Google
+  }
   await signOut(auth);
 }
 
@@ -266,50 +251,10 @@ export function subscribeToAuthState(
         return;
       }
 
-      onUserChanged({
-        id: firebaseUser.uid,
-        name:
-          firebaseUser.displayName ||
-          firestoreData?.displayName ||
-          firebaseUser.email?.split('@')[0] ||
-          'Goodreads Reader',
-        email: firebaseUser.email || '',
-        avatar:
-          firebaseUser.photoURL ||
-          firestoreData?.photoURL ||
-          `https://ui-avatars.com/api/?name=${encodeURIComponent(
-            firebaseUser.displayName || 'Reader'
-          )}&background=00635D&color=fff&size=160`,
-        isGoogleUser: Boolean(
-          firebaseUser.providerData?.some(p => p.providerId === 'google.com')
-        ),
-        booksReadCount: firestoreData?.booksReadCount ?? 0,
-        wantToReadCount: firestoreData?.wantToReadCount ?? 0,
-        currentlyReadingCount: firestoreData?.currentlyReadingCount ?? 0,
-        readingChallengeGoal: firestoreData?.readingChallengeGoal ?? 20,
-        readingChallengeProgress: firestoreData?.readingChallengeProgress ?? 0,
-      });
+      onUserChanged(mapFirebaseUserToProfile(firebaseUser, firestoreData));
     } catch (e) {
       console.warn('subscribeToAuthState notice:', e);
-      onUserChanged({
-        id: firebaseUser.uid,
-        name:
-          firebaseUser.displayName ||
-          firebaseUser.email?.split('@')[0] ||
-          'Goodreads Reader',
-        email: firebaseUser.email || '',
-        avatar:
-          firebaseUser.photoURL ||
-          `https://ui-avatars.com/api/?name=${encodeURIComponent(
-            firebaseUser.displayName || 'Reader'
-          )}&background=00635D&color=fff&size=160`,
-        isGoogleUser: false,
-        booksReadCount: 0,
-        wantToReadCount: 0,
-        currentlyReadingCount: 0,
-        readingChallengeGoal: 20,
-        readingChallengeProgress: 0,
-      });
+      onUserChanged(mapFirebaseUserToProfile(firebaseUser));
     }
   });
 }

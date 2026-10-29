@@ -14,11 +14,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { UserProfile } from '../types';
-import { GoogleSignInModal } from './GoogleSignInModal';
 import {
   registerWithFirebase,
   signInWithFirebase,
-  authenticateGoogleUser,
+  signInWithGoogle,
 } from '../firebase';
 
 interface AuthModalProps {
@@ -37,7 +36,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [showGoogleModal, setShowGoogleModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -101,23 +99,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   /**
-   * Real Google Account Login Handler
-   * Syncs with Firebase Auth and Cloud Firestore in compliance with prompt_requirements.md
+   * Legitimate Google Sign-In Handler
+   * Triggers official Google Sign-In sheet/picker and authenticates with Firebase Auth
    */
-  const handleGoogleAccountSelected = async (acc: {
-    name: string;
-    email: string;
-    avatar: string;
-    password?: string;
-  }) => {
+  const handleGoogleSignIn = async () => {
     setLoading(true);
     setErrorMessage(null);
     try {
-      const googleUser = await authenticateGoogleUser(acc);
+      const googleUser = await signInWithGoogle();
       onLoginSuccess(googleUser);
       onClose();
     } catch (err: any) {
-      console.error('Google Auth error:', err);
+      console.error('Google Sign-In error:', err);
+      // Suppress alert on intentional cancellation
+      if (
+        err.code === 'SIGN_IN_CANCELLED' ||
+        err.code === '12501' ||
+        err.message?.includes('cancelled')
+      ) {
+        return;
+      }
       const friendlyMessage =
         err.message || 'Google Authentication failed. Please try again.';
       setErrorMessage(friendlyMessage);
@@ -125,6 +126,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSocialDemo = (profile: UserProfile) => {
+    onLoginSuccess(profile);
+    onClose();
   };
 
   return (
@@ -299,7 +305,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 {/* Official Google Sign In Button with Real Google 4-Color Logo */}
                 <TouchableOpacity
                   style={styles.googleButton}
-                  onPress={() => setShowGoogleModal(true)}
+                  onPress={handleGoogleSignIn}
                   disabled={loading}
                   activeOpacity={0.8}
                 >
@@ -315,16 +321,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </Text>
                 </TouchableOpacity>
 
-                {/* Amazon & Apple buttons */}
+                {/* Amazon & Apple demo buttons */}
                 <View style={styles.secondarySocialRow}>
                   <TouchableOpacity
                     style={styles.secondarySocialBtn}
                     onPress={() =>
-                      handleGoogleAccountSelected({
+                      handleSocialDemo({
+                        id: 'usr_amazon_demo',
                         name: 'Amazon Reader',
                         email: 'reader@amazon.com',
                         avatar:
                           'https://ui-avatars.com/api/?name=Amazon+Reader&background=FF9900&color=fff&size=120',
+                        isGoogleUser: false,
+                        booksReadCount: 0,
+                        wantToReadCount: 0,
+                        currentlyReadingCount: 0,
+                        readingChallengeGoal: 20,
+                        readingChallengeProgress: 0,
                       })
                     }
                   >
@@ -334,11 +347,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <TouchableOpacity
                     style={styles.secondarySocialBtn}
                     onPress={() =>
-                      handleGoogleAccountSelected({
+                      handleSocialDemo({
+                        id: 'usr_apple_demo',
                         name: 'Apple Reader',
                         email: 'reader@icloud.com',
                         avatar:
                           'https://ui-avatars.com/api/?name=Apple+Reader&background=1C1C1E&color=fff&size=120',
+                        isGoogleUser: false,
+                        booksReadCount: 0,
+                        wantToReadCount: 0,
+                        currentlyReadingCount: 0,
+                        readingChallengeGoal: 20,
+                        readingChallengeProgress: 0,
                       })
                     }
                   >
@@ -356,13 +376,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </View>
         </KeyboardAvoidingView>
       </Modal>
-
-      {/* Google Sign In Chooser & Dynamic Account Creator */}
-      <GoogleSignInModal
-        visible={showGoogleModal}
-        onClose={() => setShowGoogleModal(false)}
-        onSelectAccount={handleGoogleAccountSelected}
-      />
     </>
   );
 };
