@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Book } from '../types';
 import { StarRating } from './StarRating';
+import { Icon } from './Icon';
 
 interface BookDetailModalProps {
   book: Book | null;
@@ -69,13 +70,26 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
   const getShelfLabel = () => {
     switch (currentShelf) {
       case 'want-to-read':
-        return 'Want to Read ✓';
+        return 'Want to Read';
       case 'currently-reading':
-        return 'Currently Reading 📖';
+        return 'Currently Reading';
       case 'read':
-        return 'Read ✓✓';
+        return 'Read';
       default:
         return 'Want to Read';
+    }
+  };
+
+  const getShelfIcon = () => {
+    switch (currentShelf) {
+      case 'want-to-read':
+        return <Icon name="check" size={13} color={currentShelf ? '#382110' : '#fff'} />;
+      case 'currently-reading':
+        return <Icon name="book-open" size={13} color="#00635D" />;
+      case 'read':
+        return <Icon name="check-double" size={13} color={currentShelf ? '#382110' : '#fff'} />;
+      default:
+        return null;
     }
   };
 
@@ -92,7 +106,7 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
           <View style={styles.headerBar}>
             <View style={styles.dragHandle} />
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
+              <Icon name="close" size={14} color="#666" />
             </TouchableOpacity>
           </View>
 
@@ -122,14 +136,17 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
                   ]}
                   onPress={() => setShowShelfPicker(!showShelfPicker)}
                 >
-                  <Text
-                    style={[
-                      styles.shelfBtnText,
-                      currentShelf && styles.shelvedBtnTextActive,
-                    ]}
-                  >
-                    {getShelfLabel()} ▾
-                  </Text>
+                  <View style={styles.shelfBtnInner}>
+                    {currentShelf && getShelfIcon()}
+                    <Text
+                      style={[
+                        styles.shelfBtnText,
+                        currentShelf && styles.shelvedBtnTextActive,
+                      ]}
+                    >
+                      {getShelfLabel()} ▾
+                    </Text>
+                  </View>
                 </TouchableOpacity>
 
                 {/* Dropdown Options */}
@@ -355,6 +372,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#FFF',
+  },
+  shelfBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
   shelvedBtnTextActive: {
     color: '#382110',

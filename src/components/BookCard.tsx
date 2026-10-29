@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
 import { Book } from '../types';
 import { StarRating } from './StarRating';
+import { Icon } from './Icon';
 
 interface BookCardProps {
   book: Book;
@@ -19,13 +20,26 @@ export const BookCard: React.FC<BookCardProps> = ({
   const getShelfLabel = (shelf?: string | null) => {
     switch (shelf) {
       case 'want-to-read':
-        return 'Want to Read ✓';
+        return 'Want to Read';
       case 'currently-reading':
-        return 'Reading... 📖';
+        return 'Reading...';
       case 'read':
-        return 'Read ✓✓';
+        return 'Read';
       default:
         return 'Want to Read';
+    }
+  };
+
+  const getShelfIcon = (shelf?: string | null) => {
+    switch (shelf) {
+      case 'want-to-read':
+        return <Icon name="check" size={12} color="#409D69" />;
+      case 'currently-reading':
+        return <Icon name="book-open" size={12} color="#00635D" />;
+      case 'read':
+        return <Icon name="check-double" size={12} color="#409D69" />;
+      default:
+        return null;
     }
   };
 
@@ -59,7 +73,7 @@ export const BookCard: React.FC<BookCardProps> = ({
           {book.author}
         </Text>
         <View style={styles.compactRatingRow}>
-          <Text style={styles.starIcon}>★</Text>
+          <Icon name="star" size={11} color="#ED9220" />
           <Text style={styles.compactRatingText}>{book.rating.toFixed(2)}</Text>
         </View>
       </TouchableOpacity>
@@ -99,14 +113,17 @@ export const BookCard: React.FC<BookCardProps> = ({
             onPress={cycleShelf}
             activeOpacity={0.7}
           >
-            <Text
-              style={[
-                styles.shelfButtonText,
-                isShelved && styles.shelvedButtonText,
-              ]}
-            >
-              {getShelfLabel(book.userShelf)}
-            </Text>
+            <View style={styles.shelfButtonInner}>
+              {isShelved && getShelfIcon(book.userShelf)}
+              <Text
+                style={[
+                  styles.shelfButtonText,
+                  isShelved && styles.shelvedButtonText,
+                ]}
+              >
+                {getShelfLabel(book.userShelf)}
+              </Text>
+            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -181,6 +198,11 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 4,
     alignSelf: 'flex-start',
+  },
+  shelfButtonInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   wantToReadButton: {
     backgroundColor: '#409D69',

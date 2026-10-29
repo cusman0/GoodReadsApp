@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { UserProfile } from '../types';
 import { GoogleSignInModal } from './GoogleSignInModal';
+import { Icon } from './Icon';
 
 interface AuthModalProps {
   visible: boolean;

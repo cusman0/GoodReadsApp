@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Book, UserProfile } from '../types';
 import { BookCard } from '../components/BookCard';
+import { Icon } from '../components/Icon';
 
 interface MyBooksScreenProps {
   user: UserProfile | null;
@@ -39,7 +40,7 @@ export const MyBooksScreen: React.FC<MyBooksScreenProps> = ({
   if (!user) {
     return (
       <View style={styles.emptyContainer}>
-        <Text style={styles.emptyIcon}>📚</Text>
+        <Icon name="books" size={52} color="#BBBBBB" />
         <Text style={styles.emptyTitle}>Sign in to view your Bookshelves</Text>
         <Text style={styles.emptySubtitle}>
           Keep track of what you want to read, organize your books into shelves, and see your reading stats.

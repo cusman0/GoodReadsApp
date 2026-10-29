@@ -10,6 +10,7 @@ import {
 import { Book } from '../types';
 import { GENRES } from '../data/mockData';
 import { BookCard } from '../components/BookCard';
+import { Icon } from '../components/Icon';
 
 interface DiscoverScreenProps {
   books: Book[];
@@ -43,7 +44,7 @@ export const DiscoverScreen: React.FC<DiscoverScreenProps> = ({
       {/* Search Bar */}
       <View style={styles.searchHeader}>
         <View style={styles.searchInputRow}>
-          <Text style={styles.searchIcon}>🔍</Text>
+          <Icon name="search" size={16} color="#888" />
           <TextInput
             style={styles.input}
             placeholder="Search books, authors, genres..."
@@ -53,7 +54,7 @@ export const DiscoverScreen: React.FC<DiscoverScreenProps> = ({
           />
           {query.length > 0 && (
             <TouchableOpacity onPress={() => setQuery('')} style={styles.clearBtn}>
-              <Text style={styles.clearBtnText}>✕</Text>
+              <Icon name="close" size={14} color="#888" />
             </TouchableOpacity>
           )}
         </View>

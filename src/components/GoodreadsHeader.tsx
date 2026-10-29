@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { UserProfile } from '../types';
+import { Icon } from './Icon';
 
 interface HeaderProps {
   user: UserProfile | null;
@@ -27,7 +28,7 @@ export const GoodreadsHeader: React.FC<HeaderProps> = ({
           onPress={onOpenSearch}
           accessibilityLabel="Search books"
         >
-          <Text style={styles.iconText}>🔍</Text>
+          <Icon name="search" size={16} color="#555" />
         </TouchableOpacity>
 
         {user ? (

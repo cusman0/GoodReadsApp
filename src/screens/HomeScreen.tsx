@@ -11,6 +11,7 @@ import {
 import { Book, FeedActivity, UserProfile } from '../types';
 import { BookCard } from '../components/BookCard';
 import { StarRating } from '../components/StarRating';
+import { Icon } from '../components/Icon';
 
 interface HomeScreenProps {
   user: UserProfile | null;
@@ -181,10 +182,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             {/* Social reactions */}
             <View style={styles.feedActionsRow}>
               <TouchableOpacity style={styles.feedActionBtn}>
-                <Text style={styles.feedActionBtnText}>❤️ {item.likes} Likes</Text>
+                <View style={styles.feedActionBtnInner}>
+                  <Icon name="heart" size={13} color="#C0392B" />
+                  <Text style={styles.feedActionBtnText}>{item.likes} Likes</Text>
+                </View>
               </TouchableOpacity>
               <TouchableOpacity style={styles.feedActionBtn}>
-                <Text style={styles.feedActionBtnText}>💬 {item.commentsCount} Comments</Text>
+                <View style={styles.feedActionBtnInner}>
+                  <Icon name="comment" size={13} color="#767676" />
+                  <Text style={styles.feedActionBtnText}>{item.commentsCount} Comments</Text>
+                </View>
               </TouchableOpacity>
             </View>
           </View>
@@ -449,6 +456,11 @@ const styles = StyleSheet.create({
   },
   feedActionBtn: {
     paddingVertical: 4,
+  },
+  feedActionBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
   feedActionBtnText: {
     fontSize: 12,

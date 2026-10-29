@@ -18,6 +18,7 @@ import { BOOKS_DATA, FEED_ACTIVITIES, INITIAL_USER } from './src/data/mockData';
 import { GoodreadsHeader } from './src/components/GoodreadsHeader';
 import { AuthModal } from './src/components/AuthModal';
 import { BookDetailModal } from './src/components/BookDetailModal';
+import { Icon } from './src/components/Icon';
 
 import { HomeScreen } from './src/screens/HomeScreen';
 import { MyBooksScreen } from './src/screens/MyBooksScreen';
@@ -142,7 +143,7 @@ function App() {
             style={styles.tabBtn}
             onPress={() => setActiveTab('home')}
           >
-            <Text style={styles.tabIcon}>🏠</Text>
+            <Icon name="home" size={20} color={activeTab === 'home' ? '#00635D' : '#767676'} />
             <Text
               style={[
                 styles.tabLabel,
@@ -157,7 +158,7 @@ function App() {
             style={styles.tabBtn}
             onPress={() => setActiveTab('mybooks')}
           >
-            <Text style={styles.tabIcon}>📚</Text>
+            <Icon name="books" size={20} color={activeTab === 'mybooks' ? '#00635D' : '#767676'} />
             <Text
               style={[
                 styles.tabLabel,
@@ -172,7 +173,7 @@ function App() {
             style={styles.tabBtn}
             onPress={() => setActiveTab('discover')}
           >
-            <Text style={styles.tabIcon}>🔍</Text>
+            <Icon name="search" size={20} color={activeTab === 'discover' ? '#00635D' : '#767676'} />
             <Text
               style={[
                 styles.tabLabel,
@@ -187,7 +188,7 @@ function App() {
             style={styles.tabBtn}
             onPress={() => setActiveTab('profile')}
           >
-            <Text style={styles.tabIcon}>👤</Text>
+            <Icon name="profile" size={20} color={activeTab === 'profile' ? '#00635D' : '#767676'} />
             <Text
               style={[
                 styles.tabLabel,

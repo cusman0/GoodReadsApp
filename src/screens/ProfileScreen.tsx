@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { Book, UserProfile } from '../types';
+import { Icon } from '../components/Icon';
 
 interface ProfileScreenProps {
   user: UserProfile | null;
@@ -30,7 +31,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   if (!user) {
     return (
       <View style={styles.guestContainer}>
-        <Text style={styles.guestIcon}>👤</Text>
+        <Icon name="profile" size={52} color="#BBBBBB" />
         <Text style={styles.guestTitle}>Sign in to Goodreads</Text>
         <Text style={styles.guestSubtitle}>
           Create an account or sign in to track your reading challenge, connect with friends, and customize your bookshelves.
