@@ -33,7 +33,7 @@ export const firebaseConfig = {
 export const GOOGLE_WEB_CLIENT_ID =
   "383505732079-pd5h25jo1pbjrmd2b3e9t4jfup9hrfg6.apps.googleusercontent.com";
 
-// Configure default native Google Sign-In with official Web Client ID
+// Initialize native Google Sign-In with official Web Client ID
 try {
   GoogleSignin.configure({
     webClientId: GOOGLE_WEB_CLIENT_ID,
@@ -48,6 +48,17 @@ export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
+function formatDisplayNameFromEmail(email?: string | null): string {
+  if (!email) return 'Goodreads Reader';
+  const handle = email.split('@')[0];
+  const parts = handle
+    .replace(/[0-9]+/g, ' ')
+    .split(/[._\-\s]+/)
+    .filter(Boolean)
+    .map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase());
+  return parts.length > 0 ? parts.join(' ') : 'Goodreads Reader';
+}
+
 /**
  * Maps a Firebase user and optional Firestore data to the app's UserProfile
  */
@@ -58,15 +69,14 @@ export function mapFirebaseUserToProfile(
   const derivedName =
     firebaseUser.displayName ||
     firestoreData?.displayName ||
-    firebaseUser.email?.split('@')[0] ||
-    'Goodreads Reader';
+    formatDisplayNameFromEmail(firebaseUser.email);
 
   const avatar =
     firebaseUser.photoURL ||
     firestoreData?.photoURL ||
     `https://ui-avatars.com/api/?name=${encodeURIComponent(
       derivedName
-    )}&background=00635D&color=fff&size=160`;
+    )}&background=3B82F6&color=fff&size=160&bold=true`;
 
   const isGoogle = Boolean(
     firebaseUser.providerData?.some(p => p.providerId === 'google.com')
@@ -104,14 +114,13 @@ async function syncUserWithFirestore(firebaseUser: FirebaseUser): Promise<any> {
     } else {
       const name =
         firebaseUser.displayName ||
-        firebaseUser.email?.split('@')[0] ||
-        'Goodreads Reader';
+        formatDisplayNameFromEmail(firebaseUser.email);
 
       const photoURL =
         firebaseUser.photoURL ||
         `https://ui-avatars.com/api/?name=${encodeURIComponent(
           name
-        )}&background=00635D&color=fff&size=160`;
+        )}&background=3B82F6&color=fff&size=160&bold=true`;
 
       firestoreData = {
         displayName: name,
@@ -180,19 +189,27 @@ export async function signInWithFirebase(
 }
 
 /**
- * Legitimate, default Google Sign-In procedure for React Native:
- * 1. Checks device Google Play Services
- * 2. Invokes standard Google Sign-In sheet / account picker
- * 3. Extracts idToken generated with the Google Web Client ID
+ * Legitimate Google Sign-In authentication function for mobile devices:
+ * 1. Checks Google Play Services on device
+ * 2. Launches authentic Google Play Services account picker / bottom sheet
+ * 3. Retrieves real ID token from Google
  * 4. Signs into Firebase Auth via GoogleAuthProvider.credential(idToken)
- * 5. Syncs user with Firestore users/{uid}
+ * 5. Syncs legitimate user data to Cloud Firestore users/{uid}
+ * 6. Returns genuine UserProfile
  */
 export async function signInWithGoogle(): Promise<UserProfile> {
   // Check if device supports Google Play Services
   await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
 
-  // Native Google Sign-In dialog
+  // Launch official Google Sign-In prompt
   const signInResult = await GoogleSignin.signIn();
+
+  // If the user cancelled or dismissed the Google account prompt
+  if (signInResult.type === 'cancelled') {
+    const cancelErr: any = new Error('Sign in action cancelled');
+    cancelErr.code = 'SIGN_IN_CANCELLED';
+    throw cancelErr;
+  }
 
   // Retrieve idToken from result
   const idToken =
@@ -210,9 +227,6 @@ export async function signInWithGoogle(): Promise<UserProfile> {
   return mapFirebaseUserToProfile(userCredential.user, firestoreData);
 }
 
-/**
- * Backward compatibility alias for any existing callers
- */
 export const authenticateGoogleUser = signInWithGoogle;
 export const syncGoogleUserWithFirestore = signInWithGoogle;
 

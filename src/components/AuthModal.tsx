@@ -36,7 +36,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleEmailAuth = async () => {
@@ -60,7 +61,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    setLoading(true);
+    setEmailLoading(true);
     try {
       let userProfile: UserProfile;
       if (tab === 'register') {
@@ -94,28 +95,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setErrorMessage(friendlyMessage);
       Alert.alert('Authentication Error', friendlyMessage);
     } finally {
-      setLoading(false);
+      setEmailLoading(false);
     }
   };
 
   /**
-   * Legitimate Google Sign-In Handler
-   * Triggers official Google Sign-In sheet/picker and authenticates with Firebase Auth
+   * Legitimate Google Sign-In Authentication:
+   * Launches official device Google Account picker sheet directly
    */
   const handleGoogleSignIn = async () => {
-    setLoading(true);
+    setGoogleLoading(true);
     setErrorMessage(null);
     try {
       const googleUser = await signInWithGoogle();
       onLoginSuccess(googleUser);
       onClose();
     } catch (err: any) {
-      console.error('Google Sign-In error:', err);
-      // Suppress alert on intentional cancellation
+      console.warn('Google Sign-In error:', err);
       if (
         err.code === 'SIGN_IN_CANCELLED' ||
         err.code === '12501' ||
-        err.message?.includes('cancelled')
+        err.code === '7' ||
+        err.message?.toLowerCase().includes('cancel') ||
+        err.message?.toLowerCase().includes('dismiss')
       ) {
         return;
       }
@@ -124,7 +126,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setErrorMessage(friendlyMessage);
       Alert.alert('Google Sign-In Error', friendlyMessage);
     } finally {
-      setLoading(false);
+      setGoogleLoading(false);
     }
   };
 
@@ -134,249 +136,256 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <>
-      <Modal
-        visible={visible}
-        animationType="slide"
-        transparent
-        onRequestClose={onClose}
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.modalBackdrop}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalBackdrop}
-        >
-          <View style={styles.modalSheet}>
-            {/* Header bar */}
-            <View style={styles.sheetHandleRow}>
-              <View style={styles.sheetHandle} />
-              <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                <Text style={styles.closeBtnText}>✕</Text>
+        <View style={styles.modalSheet}>
+          {/* Header bar */}
+          <View style={styles.sheetHandleRow}>
+            <View style={styles.sheetHandle} />
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+              <Text style={styles.closeBtnText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Logo / Title */}
+            <View style={styles.header}>
+              <Text style={styles.logoText}>goodreads</Text>
+              <Text style={styles.tagline}>Meet your next favorite book.</Text>
+            </View>
+
+            {/* Segmented Switcher */}
+            <View style={styles.tabContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.tabButton,
+                  tab === 'signin' && styles.activeTabButton,
+                ]}
+                onPress={() => {
+                  setTab('signin');
+                  setErrorMessage(null);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.tabText,
+                    tab === 'signin' && styles.activeTabText,
+                  ]}
+                >
+                  Sign In
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.tabButton,
+                  tab === 'register' && styles.activeTabButton,
+                ]}
+                onPress={() => {
+                  setTab('register');
+                  setErrorMessage(null);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.tabText,
+                    tab === 'register' && styles.activeTabText,
+                  ]}
+                >
+                  Create Account
+                </Text>
               </TouchableOpacity>
             </View>
 
-            <ScrollView
-              contentContainerStyle={styles.scrollContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              {/* Logo / Title */}
-              <View style={styles.header}>
-                <Text style={styles.logoText}>goodreads</Text>
-                <Text style={styles.tagline}>Meet your next favorite book.</Text>
+            {/* Error Message Box */}
+            {errorMessage && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>⚠️ {errorMessage}</Text>
               </View>
+            )}
 
-              {/* Segmented Switcher */}
-              <View style={styles.tabContainer}>
-                <TouchableOpacity
-                  style={[
-                    styles.tabButton,
-                    tab === 'signin' && styles.activeTabButton,
-                  ]}
-                  onPress={() => {
-                    setTab('signin');
-                    setErrorMessage(null);
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.tabText,
-                      tab === 'signin' && styles.activeTabText,
-                    ]}
-                  >
-                    Sign In
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.tabButton,
-                    tab === 'register' && styles.activeTabButton,
-                  ]}
-                  onPress={() => {
-                    setTab('register');
-                    setErrorMessage(null);
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.tabText,
-                      tab === 'register' && styles.activeTabText,
-                    ]}
-                  >
-                    Create Account
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Error Message Box */}
-              {errorMessage && (
-                <View style={styles.errorBox}>
-                  <Text style={styles.errorText}>⚠️ {errorMessage}</Text>
+            {/* Form Inputs */}
+            <View style={styles.form}>
+              {tab === 'register' && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Your Name</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. Ashley Valdez"
+                    placeholderTextColor="#999999"
+                    value={name}
+                    onChangeText={setName}
+                    autoCapitalize="words"
+                  />
                 </View>
               )}
 
-              {/* Form Inputs */}
-              <View style={styles.form}>
-                {tab === 'register' && (
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Your Name</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="e.g. Ashley Valdez"
-                      placeholderTextColor="#999999"
-                      value={name}
-                      onChangeText={setName}
-                      autoCapitalize="words"
-                    />
-                  </View>
-                )}
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Email Address</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="you@example.com"
-                    placeholderTextColor="#999999"
-                    value={email}
-                    onChangeText={setEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <View style={styles.labelRow}>
-                    <Text style={styles.label}>Password</Text>
-                    {tab === 'signin' && (
-                      <TouchableOpacity>
-                        <Text style={styles.forgotLink}>Forgot password?</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  <View style={styles.passwordContainer}>
-                    <TextInput
-                      style={styles.passwordInput}
-                      placeholder="At least 6 characters"
-                      placeholderTextColor="#999999"
-                      value={password}
-                      onChangeText={setPassword}
-                      secureTextEntry={!showPassword}
-                    />
-                    <TouchableOpacity
-                      onPress={() => setShowPassword(!showPassword)}
-                      style={styles.eyeBtn}
-                    >
-                      <Text style={styles.eyeText}>
-                        {showPassword ? 'Hide' : 'Show'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                {/* Primary Action Button */}
-                <TouchableOpacity
-                  style={[
-                    styles.primaryButton,
-                    loading && styles.buttonDisabled,
-                  ]}
-                  onPress={handleEmailAuth}
-                  disabled={loading}
-                  activeOpacity={0.85}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>
-                      {tab === 'signin'
-                        ? 'Sign In'
-                        : 'Create Goodreads Account'}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-
-                {/* Divider */}
-                <View style={styles.dividerRow}>
-                  <View style={styles.dividerLine} />
-                  <Text style={styles.dividerText}>or continue with</Text>
-                  <View style={styles.dividerLine} />
-                </View>
-
-                {/* Official Google Sign In Button with Real Google 4-Color Logo */}
-                <TouchableOpacity
-                  style={styles.googleButton}
-                  onPress={handleGoogleSignIn}
-                  disabled={loading}
-                  activeOpacity={0.8}
-                >
-                  <Image
-                    source={require('../assets/google_logo.png')}
-                    style={styles.googleLogoImage}
-                    resizeMode="contain"
-                  />
-                  <Text style={styles.googleButtonText}>
-                    {tab === 'signin'
-                      ? 'Continue with Google'
-                      : 'Sign up with Google'}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Amazon & Apple demo buttons */}
-                <View style={styles.secondarySocialRow}>
-                  <TouchableOpacity
-                    style={styles.secondarySocialBtn}
-                    onPress={() =>
-                      handleSocialDemo({
-                        id: 'usr_amazon_demo',
-                        name: 'Amazon Reader',
-                        email: 'reader@amazon.com',
-                        avatar:
-                          'https://ui-avatars.com/api/?name=Amazon+Reader&background=FF9900&color=fff&size=120',
-                        isGoogleUser: false,
-                        booksReadCount: 0,
-                        wantToReadCount: 0,
-                        currentlyReadingCount: 0,
-                        readingChallengeGoal: 20,
-                        readingChallengeProgress: 0,
-                      })
-                    }
-                  >
-                    <Text style={styles.secondarySocialText}>🛒 Amazon</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.secondarySocialBtn}
-                    onPress={() =>
-                      handleSocialDemo({
-                        id: 'usr_apple_demo',
-                        name: 'Apple Reader',
-                        email: 'reader@icloud.com',
-                        avatar:
-                          'https://ui-avatars.com/api/?name=Apple+Reader&background=1C1C1E&color=fff&size=120',
-                        isGoogleUser: false,
-                        booksReadCount: 0,
-                        wantToReadCount: 0,
-                        currentlyReadingCount: 0,
-                        readingChallengeGoal: 20,
-                        readingChallengeProgress: 0,
-                      })
-                    }
-                  >
-                    <Text style={styles.secondarySocialText}> Apple</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <Text style={styles.termsNotice}>
-                  By continuing, you agree to Goodreads{' '}
-                  <Text style={styles.linkText}>Terms of Service</Text> and{' '}
-                  <Text style={styles.linkText}>Privacy Policy</Text>.
-                </Text>
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Email Address</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="you@example.com"
+                  placeholderTextColor="#999999"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
               </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-    </>
+
+              <View style={styles.inputGroup}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>Password</Text>
+                  {tab === 'signin' && (
+                    <TouchableOpacity>
+                      <Text style={styles.forgotLink}>Forgot password?</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    placeholder="At least 6 characters"
+                    placeholderTextColor="#999999"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeBtn}
+                  >
+                    <Text style={styles.eyeText}>
+                      {showPassword ? 'Hide' : 'Show'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Primary Action Button */}
+              <TouchableOpacity
+                style={[
+                  styles.primaryButton,
+                  (emailLoading || googleLoading) && styles.buttonDisabled,
+                ]}
+                onPress={handleEmailAuth}
+                disabled={emailLoading || googleLoading}
+                activeOpacity={0.85}
+              >
+                {emailLoading ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.primaryButtonText}>
+                    {tab === 'signin'
+                      ? 'Sign In'
+                      : 'Create Goodreads Account'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              {/* Divider */}
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or continue with</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              {/* Official Google Sign In Button */}
+              <TouchableOpacity
+                style={[
+                  styles.googleButton,
+                  (emailLoading || googleLoading) && styles.buttonDisabled,
+                ]}
+                onPress={handleGoogleSignIn}
+                disabled={emailLoading || googleLoading}
+                activeOpacity={0.8}
+              >
+                {googleLoading ? (
+                  <ActivityIndicator color="#4285F4" size="small" />
+                ) : (
+                  <>
+                    <Image
+                      source={require('../assets/google_logo.png')}
+                      style={styles.googleLogoImage}
+                      resizeMode="contain"
+                    />
+                    <Text style={styles.googleButtonText}>
+                      {tab === 'signin'
+                        ? 'Continue with Google'
+                        : 'Sign up with Google'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {/* Amazon & Apple demo buttons */}
+              <View style={styles.secondarySocialRow}>
+                <TouchableOpacity
+                  style={styles.secondarySocialBtn}
+                  onPress={() =>
+                    handleSocialDemo({
+                      id: 'usr_amazon_demo',
+                      name: 'Amazon Reader',
+                      email: 'reader@amazon.com',
+                      avatar:
+                        'https://ui-avatars.com/api/?name=Amazon+Reader&background=FF9900&color=fff&size=120',
+                      isGoogleUser: false,
+                      booksReadCount: 0,
+                      wantToReadCount: 0,
+                      currentlyReadingCount: 0,
+                      readingChallengeGoal: 20,
+                      readingChallengeProgress: 0,
+                    })
+                  }
+                >
+                  <Text style={styles.secondarySocialText}>🛒 Amazon</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.secondarySocialBtn}
+                  onPress={() =>
+                    handleSocialDemo({
+                      id: 'usr_apple_demo',
+                      name: 'Apple Reader',
+                      email: 'reader@icloud.com',
+                      avatar:
+                        'https://ui-avatars.com/api/?name=Apple+Reader&background=1C1C1E&color=fff&size=120',
+                      isGoogleUser: false,
+                      booksReadCount: 0,
+                      wantToReadCount: 0,
+                      currentlyReadingCount: 0,
+                      readingChallengeGoal: 20,
+                      readingChallengeProgress: 0,
+                    })
+                  }
+                >
+                  <Text style={styles.secondarySocialText}> Apple</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.termsNotice}>
+                By continuing, you agree to Goodreads{' '}
+                <Text style={styles.linkText}>Terms of Service</Text> and{' '}
+                <Text style={styles.linkText}>Privacy Policy</Text>.
+              </Text>
+            </View>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 };
 

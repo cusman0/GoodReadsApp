@@ -7,24 +7,24 @@ import { View, Text, StyleSheet, Image } from 'react-native';
 
 interface IconProps {
   name:
-    | 'home'
-    | 'books'
-    | 'search'
-    | 'profile'
-    | 'star'
-    | 'star-half'
-    | 'star-empty'
-    | 'heart'
-    | 'comment'
-    | 'close'
-    | 'check'
-    | 'check-double'
-    | 'book-open'
-    | 'arrow-right'
-    | 'amazon'
-    | 'apple'
-    | 'google'
-    | 'bell';
+  | 'home'
+  | 'books'
+  | 'search'
+  | 'profile'
+  | 'star'
+  | 'star-half'
+  | 'star-empty'
+  | 'heart'
+  | 'comment'
+  | 'close'
+  | 'check'
+  | 'check-double'
+  | 'book-open'
+  | 'arrow-right'
+  | 'amazon'
+  | 'apple'
+  | 'google'
+  | 'bell';
   size?: number;
   color?: string;
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { UserProfile } from '../types';
 import { Icon } from './Icon';
 
@@ -8,6 +8,20 @@ interface HeaderProps {
   onOpenAuth: () => void;
   onOpenSearch: () => void;
   onOpenProfile: () => void;
+}
+
+function getInitials(name?: string, email?: string): string {
+  if (name && name.trim()) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  if (email) {
+    return email.slice(0, 2).toUpperCase();
+  }
+  return 'MS';
 }
 
 export const GoodreadsHeader: React.FC<HeaderProps> = ({
@@ -37,7 +51,11 @@ export const GoodreadsHeader: React.FC<HeaderProps> = ({
             onPress={onOpenProfile}
             accessibilityLabel="Open profile"
           >
-            <Image source={{ uri: user.avatar }} style={styles.avatarImage} />
+            <View style={styles.avatarCircle}>
+              <Text style={styles.avatarInitials}>
+                {getInitials(user.name, user.email)}
+              </Text>
+            </View>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -90,20 +108,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  iconText: {
-    fontSize: 14,
-  },
   profileButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderColor: '#00635D',
     overflow: 'hidden',
   },
-  avatarImage: {
+  avatarCircle: {
     width: '100%',
     height: '100%',
+    backgroundColor: '#3B82F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
   },
   signInButton: {
     backgroundColor: '#37745B',
@@ -117,4 +140,3 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 });
-

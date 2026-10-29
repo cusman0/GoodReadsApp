@@ -54,7 +54,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Profile Header Card */}
       <View style={styles.profileCard}>
-        <Image source={{ uri: user.avatar }} style={styles.avatar} />
+        <View style={styles.avatarCircle}>
+          <Text style={styles.avatarInitials}>
+            {user.name
+              .split(' ')
+              .map(p => p.charAt(0))
+              .slice(0, 2)
+              .join('')
+              .toUpperCase() || 'MS'}
+          </Text>
+        </View>
         <View style={styles.userInfo}>
           <Text style={styles.userName}>{user.name}</Text>
           <Text style={styles.userEmail}>{user.email}</Text>
@@ -200,6 +209,21 @@ const styles = StyleSheet.create({
     borderColor: '#E8E5DD',
     alignItems: 'center',
     marginBottom: 16,
+  },
+  avatarCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: '#00635D',
+    backgroundColor: '#3B82F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '700',
   },
   avatar: {
     width: 64,

@@ -35,6 +35,31 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Logged In User Profile Card matching Image 1 */}
+      {user && (
+        <View style={styles.userProfileCard}>
+          <View style={styles.userAvatarCircle}>
+            <Text style={styles.userAvatarInitials}>
+              {user.name
+                .split(' ')
+                .map(p => p.charAt(0))
+                .slice(0, 2)
+                .join('')
+                .toUpperCase() || 'MS'}
+            </Text>
+          </View>
+          <View style={styles.userProfileDetails}>
+            <Text style={styles.userProfileName}>{user.name}</Text>
+            <Text style={styles.userProfileEmail}>{user.email}</Text>
+            {user.isGoogleUser && (
+              <View style={styles.googleBadgePill}>
+                <Text style={styles.googleBadgePillText}>G Signed in with Google</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+
       {/* Welcome / Guest Callout */}
       {!user && (
         <View style={styles.guestBanner}>
@@ -461,6 +486,64 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
+  },
+  userProfileCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E8E5DD',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  userAvatarCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: '#00635D',
+    backgroundColor: '#3B82F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  userAvatarInitials: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  userProfileDetails: {
+    flex: 1,
+  },
+  userProfileName: {
+    fontFamily: 'serif',
+    fontSize: 19,
+    fontWeight: '700',
+    color: '#382110',
+  },
+  userProfileEmail: {
+    fontSize: 13,
+    color: '#767676',
+    marginTop: 2,
+  },
+  googleBadgePill: {
+    backgroundColor: '#E8F0FE',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    marginTop: 6,
+  },
+  googleBadgePillText: {
+    fontSize: 11,
+    color: '#1A73E8',
+    fontWeight: '600',
   },
   feedActionBtnText: {
     fontSize: 12,
