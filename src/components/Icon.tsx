@@ -3,7 +3,7 @@
  * Uses Unicode symbols + styling for a realistic, polished look.
  */
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 
 interface IconProps {
   name:
@@ -23,6 +23,7 @@ interface IconProps {
     | 'arrow-right'
     | 'amazon'
     | 'apple'
+    | 'google'
     | 'bell';
   size?: number;
   color?: string;
@@ -30,6 +31,14 @@ interface IconProps {
 
 export const Icon: React.FC<IconProps> = ({ name, size = 18, color }) => {
   switch (name) {
+    case 'google':
+      return (
+        <Image
+          source={require('../assets/google_logo.png')}
+          style={{ width: size, height: size }}
+          resizeMode="contain"
+        />
+      );
     case 'home':
       return <HomeIcon size={size} color={color ?? '#555'} />;
     case 'books':

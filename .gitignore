@@ -73,3 +73,11 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Environment Configuration Files
+.env
+.env.*
+.emv
+.emv.*
+!.env.example
+!.emv.example

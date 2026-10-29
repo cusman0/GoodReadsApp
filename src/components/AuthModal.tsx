@@ -10,10 +10,16 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { UserProfile } from '../types';
 import { GoogleSignInModal } from './GoogleSignInModal';
-import { Icon } from './Icon';
+import {
+  registerWithFirebase,
+  signInWithFirebase,
+  authenticateGoogleUser,
+} from '../firebase';
 
 interface AuthModalProps {
   visible: boolean;
@@ -32,17 +38,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [name, setName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleEmailAuth = () => {
+  const handleEmailAuth = async () => {
+    setErrorMessage(null);
     if (tab === 'register' && !name.trim()) {
+      setErrorMessage('Please enter your full name to register.');
       Alert.alert('Missing Name', 'Please enter your full name to register.');
       return;
     }
     if (!email.trim() || !email.includes('@')) {
+      setErrorMessage('Please enter a valid email address.');
       Alert.alert('Invalid Email', 'Please enter a valid email address.');
       return;
     }
     if (password.length < 6) {
+      setErrorMessage('Password must be at least 6 characters long.');
       Alert.alert(
         'Short Password',
         'Password must be at least 6 characters long.'
@@ -50,44 +62,69 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    const newUser: UserProfile = {
-      id: `usr_${Date.now()}`,
-      name: tab === 'register' ? name.trim() : email.split('@')[0],
-      email: email.trim().toLowerCase(),
-      avatar:
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
-      isGoogleUser: false,
-      booksReadCount: 0,
-      wantToReadCount: 0,
-      currentlyReadingCount: 0,
-      readingChallengeGoal: 20,
-      readingChallengeProgress: 0,
-    };
-
-    onLoginSuccess(newUser);
-    onClose();
+    setLoading(true);
+    try {
+      let userProfile: UserProfile;
+      if (tab === 'register') {
+        userProfile = await registerWithFirebase(name, email, password);
+      } else {
+        userProfile = await signInWithFirebase(email, password);
+      }
+      onLoginSuccess(userProfile);
+      onClose();
+    } catch (err: any) {
+      console.error('Firebase Auth error:', err);
+      let friendlyMessage =
+        err.message || 'Authentication failed. Please try again.';
+      if (err.code === 'auth/email-already-in-use') {
+        friendlyMessage =
+          'An account with this email already exists. Please sign in instead.';
+      } else if (
+        err.code === 'auth/wrong-password' ||
+        err.code === 'auth/invalid-credential'
+      ) {
+        friendlyMessage =
+          'Incorrect password or email. Please check your credentials and try again.';
+      } else if (err.code === 'auth/user-not-found') {
+        friendlyMessage =
+          'No account found with this email. Please register first.';
+      } else if (err.code === 'auth/weak-password') {
+        friendlyMessage = 'Password must be at least 6 characters.';
+      } else if (err.code === 'auth/invalid-email') {
+        friendlyMessage = 'The email address is invalid.';
+      }
+      setErrorMessage(friendlyMessage);
+      Alert.alert('Authentication Error', friendlyMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleGoogleAccountSelected = (acc: {
+  /**
+   * Real Google Account Login Handler
+   * Syncs with Firebase Auth and Cloud Firestore in compliance with prompt_requirements.md
+   */
+  const handleGoogleAccountSelected = async (acc: {
     name: string;
     email: string;
     avatar: string;
+    password?: string;
   }) => {
-    const googleUser: UserProfile = {
-      id: `usr_google_${Date.now()}`,
-      name: acc.name,
-      email: acc.email,
-      avatar: acc.avatar,
-      isGoogleUser: true,
-      booksReadCount: 14,
-      wantToReadCount: 48,
-      currentlyReadingCount: 2,
-      readingChallengeGoal: 30,
-      readingChallengeProgress: 14,
-    };
-
-    onLoginSuccess(googleUser);
-    onClose();
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const googleUser = await authenticateGoogleUser(acc);
+      onLoginSuccess(googleUser);
+      onClose();
+    } catch (err: any) {
+      console.error('Google Auth error:', err);
+      const friendlyMessage =
+        err.message || 'Google Authentication failed. Please try again.';
+      setErrorMessage(friendlyMessage);
+      Alert.alert('Google Sign-In Error', friendlyMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -115,19 +152,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               contentContainerStyle={styles.scrollContent}
               keyboardShouldPersistTaps="handled"
             >
-              {/* Goodreads Brand */}
-              <View style={styles.brandContainer}>
-                <Text style={styles.brandTitle}>goodreads</Text>
-                <Text style={styles.brandSubtitle}>
-                  Meet your next favorite book.
-                </Text>
+              {/* Logo / Title */}
+              <View style={styles.header}>
+                <Text style={styles.logoText}>goodreads</Text>
+                <Text style={styles.tagline}>Meet your next favorite book.</Text>
               </View>
 
-              {/* Tabs */}
-              <View style={styles.tabsContainer}>
+              {/* Segmented Switcher */}
+              <View style={styles.tabContainer}>
                 <TouchableOpacity
-                  style={[styles.tab, tab === 'signin' && styles.activeTab]}
-                  onPress={() => setTab('signin')}
+                  style={[
+                    styles.tabButton,
+                    tab === 'signin' && styles.activeTabButton,
+                  ]}
+                  onPress={() => {
+                    setTab('signin');
+                    setErrorMessage(null);
+                  }}
+                  activeOpacity={0.8}
                 >
                   <Text
                     style={[
@@ -140,8 +182,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.tab, tab === 'register' && styles.activeTab]}
-                  onPress={() => setTab('register')}
+                  style={[
+                    styles.tabButton,
+                    tab === 'register' && styles.activeTabButton,
+                  ]}
+                  onPress={() => {
+                    setTab('register');
+                    setErrorMessage(null);
+                  }}
+                  activeOpacity={0.8}
                 >
                   <Text
                     style={[
@@ -154,14 +203,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </TouchableOpacity>
               </View>
 
-              {/* Form fields */}
-              <View style={styles.formContainer}>
+              {/* Error Message Box */}
+              {errorMessage && (
+                <View style={styles.errorBox}>
+                  <Text style={styles.errorText}>⚠️ {errorMessage}</Text>
+                </View>
+              )}
+
+              {/* Form Inputs */}
+              <View style={styles.form}>
                 {tab === 'register' && (
                   <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Name</Text>
+                    <Text style={styles.label}>Your Name</Text>
                     <TextInput
                       style={styles.input}
-                      placeholder="Your name"
+                      placeholder="e.g. Ashley Valdez"
                       placeholderTextColor="#999999"
                       value={name}
                       onChangeText={setName}
@@ -214,13 +270,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
                 {/* Primary Action Button */}
                 <TouchableOpacity
-                  style={styles.primaryButton}
+                  style={[
+                    styles.primaryButton,
+                    loading && styles.buttonDisabled,
+                  ]}
                   onPress={handleEmailAuth}
+                  disabled={loading}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.primaryButtonText}>
-                    {tab === 'signin' ? 'Sign In' : 'Create Goodreads Account'}
-                  </Text>
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>
+                      {tab === 'signin'
+                        ? 'Sign In'
+                        : 'Create Goodreads Account'}
+                    </Text>
+                  )}
                 </TouchableOpacity>
 
                 {/* Divider */}
@@ -230,15 +296,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <View style={styles.dividerLine} />
                 </View>
 
-                {/* Google Sign In Button */}
+                {/* Official Google Sign In Button with Real Google 4-Color Logo */}
                 <TouchableOpacity
                   style={styles.googleButton}
                   onPress={() => setShowGoogleModal(true)}
+                  disabled={loading}
                   activeOpacity={0.8}
                 >
-                  <View style={styles.googleIconContainer}>
-                    <Text style={styles.googleIconText}>G</Text>
-                  </View>
+                  <Image
+                    source={require('../assets/google_logo.png')}
+                    style={styles.googleLogoImage}
+                    resizeMode="contain"
+                  />
                   <Text style={styles.googleButtonText}>
                     {tab === 'signin'
                       ? 'Continue with Google'
@@ -252,10 +321,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     style={styles.secondarySocialBtn}
                     onPress={() =>
                       handleGoogleAccountSelected({
-                        name: 'Ashley Valdez',
-                        email: 'ashley.valdez@amazon.com',
+                        name: 'Amazon Reader',
+                        email: 'reader@amazon.com',
                         avatar:
-                          'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&q=80',
+                          'https://ui-avatars.com/api/?name=Amazon+Reader&background=FF9900&color=fff&size=120',
                       })
                     }
                   >
@@ -266,10 +335,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     style={styles.secondarySocialBtn}
                     onPress={() =>
                       handleGoogleAccountSelected({
-                        name: 'Ashley Valdez',
-                        email: 'ashley.valdez@icloud.com',
+                        name: 'Apple Reader',
+                        email: 'reader@icloud.com',
                         avatar:
-                          'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&q=80',
+                          'https://ui-avatars.com/api/?name=Apple+Reader&background=1C1C1E&color=fff&size=120',
                       })
                     }
                   >
@@ -288,7 +357,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Google Sign In Interactive Chooser */}
+      {/* Google Sign In Chooser & Dynamic Account Creator */}
       <GoogleSignInModal
         visible={showGoogleModal}
         onClose={() => setShowGoogleModal(false)}
@@ -342,38 +411,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 20,
   },
-  brandContainer: {
+  header: {
     alignItems: 'center',
     marginBottom: 20,
+    marginTop: 4,
   },
-  brandTitle: {
-    fontFamily: 'serif',
+  logoText: {
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
     fontSize: 32,
-    fontWeight: '700',
+    fontWeight: 'bold',
     color: '#382110',
     letterSpacing: -0.5,
   },
-  brandSubtitle: {
-    fontFamily: 'serif',
+  tagline: {
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
     fontStyle: 'italic',
     fontSize: 14,
     color: '#767676',
     marginTop: 4,
   },
-  tabsContainer: {
+  tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#EAE5DB',
-    borderRadius: 8,
+    borderRadius: 10,
     padding: 3,
-    marginBottom: 20,
+    marginBottom: 16,
   },
-  tab: {
+  tabButton: {
     flex: 1,
     paddingVertical: 10,
     alignItems: 'center',
-    borderRadius: 6,
+    borderRadius: 8,
   },
-  activeTab: {
+  activeTabButton: {
     backgroundColor: '#FFFFFF',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -384,92 +454,116 @@ const styles = StyleSheet.create({
   tabText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#767676',
+    color: '#666666',
   },
   activeTabText: {
     color: '#382110',
-    fontWeight: '700',
   },
-  formContainer: {
-    gap: 14,
+  errorBox: {
+    backgroundColor: '#FDE8E8',
+    borderColor: '#F8B4B4',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: '#9B1C1C',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  form: {
+    width: '100%',
   },
   inputGroup: {
-    marginBottom: 2,
+    marginBottom: 16,
   },
   labelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 6,
   },
   label: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#382110',
+    fontWeight: '700',
+    color: '#333333',
     marginBottom: 6,
   },
   forgotLink: {
     fontSize: 12,
     color: '#00635D',
+    fontWeight: '600',
   },
   input: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#D8D5CD',
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: '#D5D2C9',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
     fontSize: 15,
-    color: '#333333',
+    color: '#111111',
   },
   passwordContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#D8D5CD',
-    borderRadius: 6,
+    borderColor: '#D5D2C9',
+    borderRadius: 8,
   },
   passwordInput: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
     fontSize: 15,
-    color: '#333333',
+    color: '#111111',
   },
   eyeBtn: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   eyeText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#00635D',
     fontWeight: '600',
   },
   primaryButton: {
-    backgroundColor: '#37745B',
-    paddingVertical: 13,
-    borderRadius: 6,
+    backgroundColor: '#386641',
+    borderRadius: 8,
+    paddingVertical: 14,
     alignItems: 'center',
     marginTop: 6,
+    marginBottom: 18,
+    shadowColor: '#386641',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  buttonDisabled: {
+    opacity: 0.65,
   },
   primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 10,
+    marginBottom: 16,
   },
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#D8D5CD',
+    backgroundColor: '#E0DDD5',
   },
   dividerText: {
-    marginHorizontal: 12,
+    paddingHorizontal: 12,
     fontSize: 12,
-    color: '#8A857B',
+    color: '#888888',
   },
   googleButton: {
     flexDirection: 'row',
@@ -477,48 +571,39 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#DADCE0',
-    borderRadius: 6,
-    paddingVertical: 11,
-    paddingHorizontal: 16,
+    borderColor: '#D5D2C9',
+    borderRadius: 8,
+    paddingVertical: 12,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 1,
     elevation: 1,
   },
-  googleIconContainer: {
+  googleLogoImage: {
     width: 22,
     height: 22,
-    borderRadius: 11,
-    backgroundColor: '#4285F4',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  googleIconText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
+    marginRight: 12,
   },
   googleButtonText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
     color: '#3C4043',
   },
   secondarySocialRow: {
     flexDirection: 'row',
     gap: 10,
+    marginBottom: 20,
   },
   secondarySocialBtn: {
     flex: 1,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#D8D5CD',
-    borderRadius: 6,
-    paddingVertical: 10,
+    borderColor: '#D5D2C9',
+    borderRadius: 8,
+    paddingVertical: 11,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   secondarySocialText: {
     fontSize: 13,
@@ -527,9 +612,8 @@ const styles = StyleSheet.create({
   },
   termsNotice: {
     fontSize: 11,
-    color: '#767676',
+    color: '#777777',
     textAlign: 'center',
-    marginTop: 10,
     lineHeight: 16,
   },
   linkText: {
@@ -537,4 +621,3 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
   },
 });
-
