@@ -18,6 +18,7 @@ import { BookshelvesWidget } from './components/BookshelvesWidget';
 import { FeedItem } from './components/FeedItem';
 import { NewsSidebar } from './components/NewsSidebar';
 import { MobileViewSimulator } from './components/MobileViewSimulator';
+import { AdminPortal } from './components/AdminPortal';
 import { CheckCircle2, ArrowRight } from 'lucide-react';
 import {
   subscribeToAuthState,
@@ -29,7 +30,7 @@ export function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [books, setBooks] = useState<Book[]>(BOOKS_DATA);
   const [feed] = useState<FeedActivity[]>(FEED_ACTIVITIES);
-  const [viewMode, setViewMode] = useState<'desktop' | 'mobile'>('desktop');
+  const [viewMode, setViewMode] = useState<'desktop' | 'mobile' | 'admin'>('desktop');
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [selectedShelf, setSelectedShelf] = useState<string | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -169,8 +170,11 @@ export function App() {
         onToggleViewMode={setViewMode}
       />
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
+      {/* Admin Portal Mode (Checklist Items 15-18) */}
+      {viewMode === 'admin' ? (
+        <AdminPortal onBackToApp={() => setViewMode('desktop')} />
+      ) : (
+        <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
         {viewMode === 'mobile' ? (
           /* Mobile Simulator Mode */
           <MobileViewSimulator
@@ -368,6 +372,7 @@ export function App() {
           </div>
         )}
       </main>
+      )}
 
       {/* Book Detail Modal */}
       <BookDetailModal

@@ -11,6 +11,8 @@ jest.mock('../src/firebase', () => ({
   auth: {},
   firebaseConfig: {},
   subscribeToAuthState: jest.fn(() => () => {}),
+  subscribeToCommunityPosts: jest.fn(() => () => {}),
+  createReviewPost: jest.fn(() => Promise.resolve('mock_post_id')),
   signOutUser: jest.fn(() => Promise.resolve()),
   registerWithFirebase: jest.fn(),
   signInWithFirebase: jest.fn(),

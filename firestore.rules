@@ -1,0 +1,67 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Only users in admins/{uid} get admin access
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isNotDisabled() {
+      return !exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.disabled != true;
+    }
+
+    // 1. Users collection
+    // Users can only edit their own users/{uid}; only admins can update/disable others
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow create: if isUser(uid);
+      allow update: if isUser(uid) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // 2. Posts collection
+    // Posts can be created ONLY with authorId == request.auth.uid
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+                       request.auth.uid == request.resource.data.authorId &&
+                       isNotDisabled();
+      allow update: if (isUser(resource.data.authorId) && isNotDisabled()) ||
+                       // Non-authors may only increment/decrement likeCount
+                       (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount']));
+      allow delete: if isUser(resource.data.authorId) || isAdmin();
+    }
+
+    // 3. Admins collection
+    // Only users in admins/{uid} get admin access
+    match /admins/{uid} {
+      allow read: if isSignedIn();
+      allow write: if false; // Only manageable directly via Firebase Console or Admin SDK
+    }
+
+    // 4. Summaries collection
+    match /summaries/{summaryId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isNotDisabled();
+    }
+
+    // 5. Insights collection
+    // Only users in admins/{uid} get write access to insights
+    match /insights/{insightId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}
+

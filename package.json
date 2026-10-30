@@ -11,7 +11,8 @@
     "web": "npm --prefix pc-web run dev",
     "web:build": "npm --prefix pc-web run build",
     "web:preview": "npm --prefix pc-web run preview",
-    "pc": "npm --prefix pc-web run dev"
+    "pc": "npm --prefix pc-web run dev",
+    "seed": "node scripts/seedFirestore.js"
   },
   "dependencies": {
     "@react-native-google-signin/google-signin": "^16.2.0",

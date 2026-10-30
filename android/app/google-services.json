@@ -7,29 +7,36 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:383505732079:android:68d76764708ee0983f261a",
+        "mobilesdk_app_id": "1:383505732079:android:f5a104a8715735b43f261a",
         "android_client_info": {
-          "package_name": "com.goodreadsapp",
-          "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          "package_name": "com.goodreadsapp"
         }
       },
       "oauth_client": [
         {
-          "client_id": "383505732079-pd5h25jo1pbjrmd2b3e9t4jfup9hrfg6.apps.googleusercontent.com",
-          "client_type": 3
-        },
-        {
-          "client_id": "383505732079-android.apps.googleusercontent.com",
+          "client_id": "383505732079-fuagmv0juhfms06cn3nk7v6p9a7gsth1.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.goodreadsapp",
             "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
           }
+        },
+        {
+          "client_id": "383505732079-haplrin3qls52e0q99m56g9on9dtmfdf.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.goodreadsapp",
+            "certificate_hash": "6ec680cd10898753f435dfd3b2ababe8bed0e1df"
+          }
+        },
+        {
+          "client_id": "383505732079-pd5h25jo1pbjrmd2b3e9t4jfup9hrfg6.apps.googleusercontent.com",
+          "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyDDcjNMSsDRsa2xrhePfC_xAk-Pcf-9PG8"
+          "current_key": "AIzaSyA9ShHii4rGKXZbYVYSNWq4vQo9l7xShnc"
         }
       ],
       "services": {
@@ -46,4 +53,3 @@
   ],
   "configuration_version": "1"
 }
-

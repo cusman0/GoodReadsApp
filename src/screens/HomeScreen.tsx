@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,13 @@ import {
   FlatList,
   Image,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { Book, FeedActivity, UserProfile } from '../types';
 import { BookCard } from '../components/BookCard';
 import { StarRating } from '../components/StarRating';
 import { Icon } from '../components/Icon';
+import { getCommunityFeedSummary, AISummaryResult } from '../services/aiService';
 
 interface HomeScreenProps {
   user: UserProfile | null;
@@ -20,6 +22,8 @@ interface HomeScreenProps {
   onSelectBook: (book: Book) => void;
   onShelfChange: (bookId: string, shelf: 'want-to-read' | 'currently-reading' | 'read' | null) => void;
   onOpenAuth: () => void;
+  onEditPost?: (activity: FeedActivity) => void;
+  onDeletePost?: (postId: string) => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -29,28 +33,118 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSelectBook,
   onShelfChange,
   onOpenAuth,
+  onEditPost,
+  onDeletePost,
 }) => {
   const currentlyReading = books.filter(b => b.userShelf === 'currently-reading');
   const trendingBooks = books.slice(0, 6);
+  const myReviews = (feed || []).filter(
+    item => user && (item.userId === user.id || (user.name && item.userName === user.name))
+  );
+  const [avatarError, setAvatarError] = useState(false);
+  const [summary, setSummary] = useState<AISummaryResult | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  useEffect(() => {
+    setAvatarError(false);
+  }, [user?.avatar]);
+
+  useEffect(() => {
+    let active = true;
+    getCommunityFeedSummary(feed).then(res => {
+      if (active) setSummary(res);
+    });
+    return () => {
+      active = false;
+    };
+  }, [feed]);
+
+  const handleRefreshSummary = async () => {
+    setSummaryLoading(true);
+    try {
+      const freshSummary = await getCommunityFeedSummary(feed, true);
+      setSummary(freshSummary);
+    } catch (e) {
+      console.warn('Failed to refresh AI summary:', e);
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
+  // Live user bookshelf & reading challenge metrics
+  const liveBooksRead = books.filter(b => b.userShelf === 'read').length;
+  const liveReading = books.filter(b => b.userShelf === 'currently-reading').length;
+  const liveWantToRead = books.filter(b => b.userShelf === 'want-to-read').length;
+  const challengeGoal =
+    user?.readingChallengeGoal && user.readingChallengeGoal > 0
+      ? user.readingChallengeGoal
+      : 12;
+  const challengeProgress = Math.max(
+    user?.readingChallengeProgress || 0,
+    liveBooksRead
+  );
+  const challengePercent = Math.min(
+    100,
+    Math.round((challengeProgress / challengeGoal) * 100)
+  );
+
+  const calculateLivePace = () => {
+    if (challengeProgress >= challengeGoal) {
+      return `🎉 Goal achieved! You read ${challengeProgress} of ${challengeGoal} books!`;
+    }
+    const now = new Date();
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const dayOfYear =
+      Math.floor(
+        (now.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
+      ) + 1;
+    const expected = Math.round((dayOfYear / 365) * challengeGoal);
+    const diff = challengeProgress - expected;
+    if (diff > 0) {
+      return `You are ${diff} ${diff === 1 ? 'book' : 'books'} ahead of schedule!`;
+    } else if (diff < 0) {
+      const behind = Math.abs(diff);
+      return `You are ${behind} ${behind === 1 ? 'book' : 'books'} behind schedule. Keep reading!`;
+    }
+    return 'You are right on track with your reading goal!';
+  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Logged In User Profile Card matching Image 1 */}
       {user && (
         <View style={styles.userProfileCard}>
-          <View style={styles.userAvatarCircle}>
-            <Text style={styles.userAvatarInitials}>
-              {user.name
-                .split(' ')
-                .map(p => p.charAt(0))
-                .slice(0, 2)
-                .join('')
-                .toUpperCase() || 'MS'}
-            </Text>
+          <View style={styles.userAvatarWrapper}>
+            {user.avatar && !avatarError ? (
+              <Image
+                source={{ uri: user.avatar }}
+                style={styles.userAvatar}
+                onError={() => setAvatarError(true)}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.userAvatarCircle}>
+                <Text style={styles.userAvatarInitials}>
+                  {user.name
+                    .split(' ')
+                    .map(p => p.charAt(0))
+                    .slice(0, 2)
+                    .join('')
+                    .toUpperCase() || 'MS'}
+                </Text>
+              </View>
+            )}
           </View>
           <View style={styles.userProfileDetails}>
             <Text style={styles.userProfileName}>{user.name}</Text>
             <Text style={styles.userProfileEmail}>{user.email}</Text>
+            <View style={styles.userProfileStatsRow}>
+              <Text style={styles.userProfileStatText}>
+                <Text style={styles.userProfileStatBold}>{liveBooksRead}</Text> Read •{' '}
+                <Text style={styles.userProfileStatBold}>{liveReading}</Text> Reading •{' '}
+                <Text style={styles.userProfileStatBold}>{liveWantToRead}</Text> Want to Read
+              </Text>
+            </View>
             {user.isGoogleUser && (
               <View style={styles.googleBadgePill}>
                 <Text style={styles.googleBadgePillText}>G Signed in with Google</Text>
@@ -73,33 +167,30 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </View>
       )}
 
-      {/* Reading Challenge Widget */}
+      {/* Live Reading Challenge Widget */}
       {user && (
         <View style={styles.challengeCard}>
           <View style={styles.challengeRow}>
             <View style={styles.challengeInfo}>
               <Text style={styles.challengeYear}>2026 READING CHALLENGE</Text>
               <Text style={styles.challengeStats}>
-                {user.readingChallengeProgress} of {user.readingChallengeGoal} books completed
+                {challengeProgress} of {challengeGoal} books completed
               </Text>
               <View style={styles.progressBarTrack}>
                 <View
                   style={[
                     styles.progressBarFill,
                     {
-                      width: `${Math.min(
-                        100,
-                        (user.readingChallengeProgress / user.readingChallengeGoal) * 100
-                      )}%`,
+                      width: `${challengePercent}%`,
                     },
                   ]}
                 />
               </View>
-              <Text style={styles.challengeSubtext}>You are 2 books ahead of schedule!</Text>
+              <Text style={styles.challengeSubtext}>{calculateLivePace()}</Text>
             </View>
             <View style={styles.challengeBadge}>
               <Text style={styles.challengeBadgeNumber}>
-                {Math.round((user.readingChallengeProgress / user.readingChallengeGoal) * 100)}%
+                {challengePercent}%
               </Text>
             </View>
           </View>
@@ -160,6 +251,158 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         />
       </View>
 
+      {/* AI Community Summary Section */}
+      <View style={styles.aiSummaryCard}>
+        <View style={styles.aiSummaryHeaderRow}>
+          <View style={styles.aiSummaryTitleGroup}>
+            <View style={styles.aiSummaryBadge}>
+              <Text style={styles.aiSummaryBadgeText}>✦ GEMINI AI</Text>
+            </View>
+            <Text style={styles.aiSummaryTitle}>Reader Consensus</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.aiRefreshBtn}
+            onPress={handleRefreshSummary}
+            disabled={summaryLoading}
+          >
+            {summaryLoading ? (
+              <ActivityIndicator size="small" color="#00635D" />
+            ) : (
+              <Text style={styles.aiRefreshBtnText}>↻ Refresh</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {summary && (
+          <View style={styles.aiSummaryBody}>
+            <Text style={styles.aiSummaryText}>"{summary.summaryText}"</Text>
+
+            {/* Trending Topics Badges */}
+            <View style={styles.aiTopicsRow}>
+              {summary.topics.map((topic, idx) => (
+                <View key={idx} style={styles.aiTopicBadge}>
+                  <Text style={styles.aiTopicText}>#{topic}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Sentiment & Status Row */}
+            <View style={styles.aiFooterRow}>
+              <View style={styles.aiSentimentBadge}>
+                <Text style={styles.aiSentimentDot}>●</Text>
+                <Text style={styles.aiSentimentText}>
+                  {summary.mood === 'positive'
+                    ? '94% Positive Sentiment'
+                    : summary.mood === 'negative'
+                    ? 'Critical / Mixed Feedback'
+                    : 'Balanced Community View'}
+                </Text>
+              </View>
+              <Text style={styles.aiUpdatedText}>
+                {summary.cached ? 'Cached' : 'Live'} • {summary.lastUpdated}
+              </Text>
+            </View>
+          </View>
+        )}
+      </View>
+
+      {/* My Reviews & Recent Activity Section */}
+      {user && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>MY REVIEWS & RECENT ACTIVITY</Text>
+            {myReviews.length > 0 && (
+              <View style={styles.myReviewsCountPill}>
+                <Text style={styles.myReviewsCountText}>
+                  {myReviews.length} {myReviews.length === 1 ? 'review' : 'reviews'}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {myReviews.length > 0 ? (
+            myReviews.map(item => (
+              <View key={item.id} style={styles.myReviewCard}>
+                <View style={styles.myReviewHeader}>
+                  <TouchableOpacity
+                    onPress={() => onSelectBook(item.book)}
+                    activeOpacity={0.8}
+                  >
+                    <Image
+                      source={{ uri: item.book.coverUrl }}
+                      style={styles.myReviewCover}
+                    />
+                  </TouchableOpacity>
+                  <View style={styles.myReviewMeta}>
+                    <TouchableOpacity
+                      onPress={() => onSelectBook(item.book)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.myReviewTitle} numberOfLines={2}>
+                        {item.book.title}
+                      </Text>
+                    </TouchableOpacity>
+                    <Text style={styles.myReviewAuthor}>by {item.book.author}</Text>
+                    {item.rating && (
+                      <View style={styles.myReviewRatingRow}>
+                        <StarRating rating={item.rating} size={14} />
+                      </View>
+                    )}
+                    <Text style={styles.myReviewDateText}>
+                      Published {item.timestamp}
+                    </Text>
+                  </View>
+                </View>
+
+                {item.reviewText ? (
+                  <View style={styles.myReviewBodyBox}>
+                    <Text style={styles.myReviewBody}>"{item.reviewText}"</Text>
+                  </View>
+                ) : null}
+
+
+                <View style={styles.myReviewActionsRow}>
+                  <TouchableOpacity
+                    style={styles.myReviewEditBtn}
+                    onPress={() => onEditPost && onEditPost(item)}
+                    activeOpacity={0.8}
+                  >
+                    <Icon name="edit" size={13} color="#00635D" />
+                    <Text style={styles.myReviewEditBtnText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.myReviewDeleteBtn}
+                    onPress={() => onDeletePost && onDeletePost(item.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Icon name="trash" size={13} color="#C0392B" />
+                    <Text style={styles.myReviewDeleteBtnText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.myReviewFooter}>
+                  <View style={styles.myReviewBadge}>
+                    <Text style={styles.myReviewBadgeText}>✓ Your Verified Review</Text>
+                  </View>
+                  <View style={styles.myReviewStatsRow}>
+                    <Icon name="heart" size={12} color="#C0392B" />
+                    <Text style={styles.myReviewStatText}>{item.likes || 0} likes</Text>
+                  </View>
+                </View>
+              </View>
+            ))
+          ) : (
+            <View style={styles.emptyMyReviewsBox}>
+              <Icon name="books" size={24} color="#00635D" />
+              <Text style={styles.emptyMyReviewsTitle}>No reviews published yet</Text>
+              <Text style={styles.emptyMyReviewsSubtext}>
+                Tap any book to rate, review, and share your thoughts with the community!
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
       {/* Updates Feed (Community / Friends) */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>UPDATES FEED</Text>
@@ -170,7 +413,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <Image source={{ uri: item.userAvatar }} style={styles.feedUserAvatar} />
               <View style={styles.feedUserInfo}>
                 <Text style={styles.feedUserName}>
-                  {item.userName}{' '}
+                  {item.userName}
+                  {user && (item.userId === user.id || item.userName === user.name) && (
+                    <Text style={styles.feedYouBadge}> (You)</Text>
+                  )}{' '}
                   <Text style={styles.feedActionText}>
                     {item.activityType === 'reviewed' && 'reviewed a book'}
                     {item.activityType === 'reading' && 'started reading'}
@@ -204,6 +450,28 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <Text style={styles.feedReviewText}>{item.reviewText}</Text>
             )}
 
+
+            {user && (item.userId === user.id || item.userName === user.name) && (
+              <View style={styles.feedOwnerActionsRow}>
+                <TouchableOpacity
+                  style={styles.feedOwnerEditBtn}
+                  onPress={() => onEditPost && onEditPost(item)}
+                  activeOpacity={0.8}
+                >
+                  <Icon name="edit" size={12} color="#00635D" />
+                  <Text style={styles.feedOwnerEditBtnText}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.feedOwnerDeleteBtn}
+                  onPress={() => onDeletePost && onDeletePost(item.id)}
+                  activeOpacity={0.8}
+                >
+                  <Icon name="trash" size={12} color="#C0392B" />
+                  <Text style={styles.feedOwnerDeleteBtnText}>Delete</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* Social reactions */}
             <View style={styles.feedActionsRow}>
               <TouchableOpacity style={styles.feedActionBtn}>
@@ -227,6 +495,83 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
+  myReviewActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  myReviewEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 4,
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+  },
+  myReviewEditBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#00635D',
+  },
+  myReviewDeleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 4,
+    backgroundColor: '#FFEBEE',
+    borderWidth: 1,
+    borderColor: '#FFCDD2',
+  },
+  myReviewDeleteBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#C0392B',
+  },
+  feedOwnerActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 6,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F0ECE1',
+    marginTop: 6,
+  },
+  feedOwnerEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    backgroundColor: '#E8F5E9',
+  },
+  feedOwnerEditBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#00635D',
+  },
+  feedOwnerDeleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    backgroundColor: '#FFEBEE',
+  },
+  feedOwnerDeleteBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#C0392B',
+  },
+
   container: {
     flex: 1,
     backgroundColor: '#F4F1EA',
@@ -502,16 +847,139 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
-  userAvatarCircle: {
+  aiSummaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E8E5DD',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  aiSummaryHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  aiSummaryTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  aiSummaryBadge: {
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+  },
+  aiSummaryBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#2E7D32',
+    letterSpacing: 0.5,
+  },
+  aiSummaryTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#00635D',
+    letterSpacing: 0.5,
+  },
+  aiRefreshBtn: {
+    backgroundColor: '#F4F1EA',
+    borderWidth: 1,
+    borderColor: '#D8D5CD',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  aiRefreshBtnText: {
+    fontSize: 11,
+    color: '#00635D',
+    fontWeight: '700',
+  },
+  aiSummaryBody: {
+    marginTop: 2,
+  },
+  aiSummaryText: {
+    fontFamily: 'serif',
+    fontSize: 13,
+    color: '#382110',
+    lineHeight: 19,
+    fontStyle: 'italic',
+  },
+  aiTopicsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 10,
+  },
+  aiTopicBadge: {
+    backgroundColor: '#F4F1EA',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#EAE5DB',
+  },
+  aiTopicText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#666',
+  },
+  aiFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F4F1EA',
+  },
+  aiSentimentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  aiSentimentDot: {
+    fontSize: 10,
+    color: '#409D69',
+  },
+  aiSentimentText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#409D69',
+  },
+  aiUpdatedText: {
+    fontSize: 10,
+    color: '#999',
+  },
+  userAvatarWrapper: {
     width: 64,
     height: 64,
     borderRadius: 32,
     borderWidth: 2,
     borderColor: '#00635D',
+    overflow: 'hidden',
+    backgroundColor: '#3B82F6',
+    marginRight: 16,
+  },
+  userAvatar: {
+    width: '100%',
+    height: '100%',
+  },
+  userAvatarCircle: {
+    width: '100%',
+    height: '100%',
     backgroundColor: '#3B82F6',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
   },
   userAvatarInitials: {
     color: '#FFFFFF',
@@ -532,6 +1000,17 @@ const styles = StyleSheet.create({
     color: '#767676',
     marginTop: 2,
   },
+  userProfileStatsRow: {
+    marginTop: 4,
+  },
+  userProfileStatText: {
+    fontSize: 12,
+    color: '#666666',
+  },
+  userProfileStatBold: {
+    fontWeight: '700',
+    color: '#00635D',
+  },
   googleBadgePill: {
     backgroundColor: '#E8F0FE',
     alignSelf: 'flex-start',
@@ -549,6 +1028,136 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#767676',
     fontWeight: '500',
+  },
+  feedYouBadge: {
+    color: '#00635D',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  myReviewsCountPill: {
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+  },
+  myReviewsCountText: {
+    fontSize: 11,
+    color: '#2E7D32',
+    fontWeight: '600',
+  },
+  myReviewCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E8E5DD',
+    borderLeftWidth: 4,
+    borderLeftColor: '#00635D',
+  },
+  myReviewHeader: {
+    flexDirection: 'row',
+  },
+  myReviewCover: {
+    width: 54,
+    height: 80,
+    borderRadius: 4,
+    backgroundColor: '#DDD',
+    marginRight: 12,
+  },
+  myReviewMeta: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  myReviewTitle: {
+    fontFamily: 'serif',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#382110',
+    lineHeight: 20,
+  },
+  myReviewAuthor: {
+    fontSize: 12,
+    color: '#767676',
+    marginTop: 2,
+  },
+  myReviewRatingRow: {
+    marginTop: 4,
+  },
+  myReviewDateText: {
+    fontSize: 11,
+    color: '#999999',
+    marginTop: 4,
+  },
+  myReviewBodyBox: {
+    marginTop: 10,
+    backgroundColor: '#F9F8F5',
+    padding: 10,
+    borderRadius: 6,
+    borderLeftWidth: 2,
+    borderLeftColor: '#D8D4C7',
+  },
+  myReviewBody: {
+    fontSize: 13,
+    color: '#333333',
+    lineHeight: 19,
+    fontStyle: 'italic',
+  },
+  myReviewFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F0ECE1',
+  },
+  myReviewBadge: {
+    backgroundColor: '#E6F4EA',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  myReviewBadgeText: {
+    fontSize: 11,
+    color: '#137333',
+    fontWeight: '600',
+  },
+  myReviewStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  myReviewStatText: {
+    fontSize: 12,
+    color: '#767676',
+    marginLeft: 4,
+  },
+  emptyMyReviewsBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E8E5DD',
+    borderStyle: 'dashed',
+    marginBottom: 12,
+  },
+  emptyMyReviewsTitle: {
+    fontFamily: 'serif',
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#382110',
+    marginTop: 8,
+  },
+  emptyMyReviewsSubtext: {
+    fontSize: 12,
+    color: '#767676',
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 18,
+    maxWidth: 280,
   },
 });
 

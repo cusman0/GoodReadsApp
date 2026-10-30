@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { UserProfile } from '../types';
 import { Icon } from './Icon';
 
@@ -8,6 +8,7 @@ interface HeaderProps {
   onOpenAuth: () => void;
   onOpenSearch: () => void;
   onOpenProfile: () => void;
+  onOpenAIChat?: () => void;
 }
 
 function getInitials(name?: string, email?: string): string {
@@ -29,7 +30,13 @@ export const GoodreadsHeader: React.FC<HeaderProps> = ({
   onOpenAuth,
   onOpenSearch,
   onOpenProfile,
+  onOpenAIChat,
 }) => {
+  const [imageError, setImageError] = useState(false);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [user?.avatar]);
   return (
     <View style={styles.header}>
       <View style={styles.leftRow}>
@@ -37,6 +44,17 @@ export const GoodreadsHeader: React.FC<HeaderProps> = ({
       </View>
 
       <View style={styles.rightRow}>
+        {/* Dedicated Goodreads AI Assistant Button */}
+        <TouchableOpacity
+          style={styles.aiHeaderBtn}
+          onPress={onOpenAIChat}
+          activeOpacity={0.8}
+          accessibilityLabel="Ask Goodreads AI"
+        >
+          <Text style={styles.aiHeaderSparkle}>✦</Text>
+          <Text style={styles.aiHeaderBtnText}>Ask AI</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.iconButton}
           onPress={onOpenSearch}
@@ -51,11 +69,20 @@ export const GoodreadsHeader: React.FC<HeaderProps> = ({
             onPress={onOpenProfile}
             accessibilityLabel="Open profile"
           >
-            <View style={styles.avatarCircle}>
-              <Text style={styles.avatarInitials}>
-                {getInitials(user.name, user.email)}
-              </Text>
-            </View>
+            {user.avatar && !imageError ? (
+              <Image
+                source={{ uri: user.avatar }}
+                style={styles.headerAvatar}
+                onError={() => setImageError(true)}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarInitials}>
+                  {getInitials(user.name, user.email)}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -98,6 +125,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  aiHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  aiHeaderSparkle: {
+    color: '#2E7D32',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  aiHeaderBtnText: {
+    color: '#2E7D32',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   iconButton: {
     width: 36,
     height: 36,
@@ -115,6 +163,11 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#00635D',
     overflow: 'hidden',
+    backgroundColor: '#3B82F6',
+  },
+  headerAvatar: {
+    width: '100%',
+    height: '100%',
   },
   avatarCircle: {
     width: '100%',

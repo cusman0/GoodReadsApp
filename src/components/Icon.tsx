@@ -24,13 +24,19 @@ interface IconProps {
   | 'amazon'
   | 'apple'
   | 'google'
-  | 'bell';
+  | 'bell'
+  | 'edit'
+  | 'trash';
   size?: number;
   color?: string;
 }
 
 export const Icon: React.FC<IconProps> = ({ name, size = 18, color }) => {
   switch (name) {
+    case 'edit':
+      return <EditIcon size={size} color={color ?? '#00635D'} />;
+    case 'trash':
+      return <TrashIcon size={size} color={color ?? '#C0392B'} />;
     case 'google':
       return (
         <Image
@@ -405,6 +411,15 @@ const AppleIcon = ({ size }: { size: number }) => (
 
 const BellIcon = ({ size, color }: { size: number; color: string }) => (
   <Text style={{ fontSize: size * 0.85, color, lineHeight: size }}>🔔</Text>
+);
+
+
+const EditIcon = ({ size, color }: { size: number; color: string }) => (
+  <Text style={{ fontSize: size * 0.85, color, lineHeight: size }}>✎</Text>
+);
+
+const TrashIcon = ({ size, color }: { size: number; color: string }) => (
+  <Text style={{ fontSize: size * 0.85, color, lineHeight: size }}>🗑</Text>
 );
 
 const styles = StyleSheet.create({});

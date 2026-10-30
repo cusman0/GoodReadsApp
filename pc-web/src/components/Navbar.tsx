@@ -9,6 +9,7 @@ import {
   Bookmark,
   Smartphone,
   Monitor,
+  ShieldCheck,
 } from 'lucide-react';
 import type { Book, UserProfile } from '../types';
 
@@ -18,8 +19,8 @@ interface NavbarProps {
   onSelectBook: (book: Book) => void;
   onOpenAuth: (tab: 'signin' | 'register') => void;
   onLogout: () => void;
-  viewMode: 'desktop' | 'mobile';
-  onToggleViewMode: (mode: 'desktop' | 'mobile') => void;
+  viewMode: 'desktop' | 'mobile' | 'admin';
+  onToggleViewMode: (mode: 'desktop' | 'mobile' | 'admin') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -98,6 +99,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Smartphone className="w-3.5 h-3.5" />
             <span>Mobile Simulator</span>
+          </button>
+          <button
+            onClick={() => onToggleViewMode('admin')}
+            className={`flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-medium transition-colors ${
+              viewMode === 'admin'
+                ? 'bg-[#00635D] text-white shadow-xs'
+                : 'text-gray-300 hover:text-white'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Admin Portal</span>
           </button>
         </div>
       </div>

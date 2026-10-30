@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -9,8 +9,11 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
-import { Book } from '../types';
+import { Book, UserProfile, FeedActivity } from '../types';
+import { createReviewPost } from '../firebase';
+import { assistReviewWriting, getBookConsensusSummary } from '../services/aiService';
 import { StarRating } from './StarRating';
 import { Icon } from './Icon';
 
@@ -24,6 +27,9 @@ interface BookDetailModalProps {
     rating?: number,
     progress?: number
   ) => void;
+  user?: UserProfile | null;
+  onOpenAuth?: () => void;
+  onPostCreated?: (newActivity: FeedActivity) => void;
 }
 
 export const BookDetailModal: React.FC<BookDetailModalProps> = ({
@@ -31,30 +37,169 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
   visible,
   onClose,
   onUpdateShelf,
+  user,
+  onOpenAuth,
+  onPostCreated,
 }) => {
-  if (!book) return null;
-
-  const [currentShelf, setCurrentShelf] = useState(book.userShelf || null);
-  const [userRating, setUserRating] = useState(book.userRating || 0);
+  const [currentShelf, setCurrentShelf] = useState<
+    'want-to-read' | 'currently-reading' | 'read' | null
+  >(book?.userShelf || null);
+  const [userRating, setUserRating] = useState(book?.userRating || 0);
   const [pagesRead, setPagesRead] = useState(
-    book.progressPages ? String(book.progressPages) : '0'
+    book?.progressPages ? String(book.progressPages) : '0'
   );
   const [showShelfPicker, setShowShelfPicker] = useState(false);
+  const [reviewText, setReviewText] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [aiHelperLoading, setAiHelperLoading] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  const [showAIConsensus, setShowAIConsensus] = useState(false);
+  const [bookConsensus, setBookConsensus] = useState<string | null>(null);
+  const [bookConsensusLoading, setBookConsensusLoading] = useState(false);
+
+  useEffect(() => {
+    if (book) {
+      setCurrentShelf(book.userShelf || null);
+      setUserRating(book.userRating || 0);
+      setPagesRead(book.progressPages ? String(book.progressPages) : '0');
+      setReviewText('');
+      setAiSuggestion(null);
+      setShowAIConsensus(false);
+      setBookConsensus(null);
+      setShowShelfPicker(false);
+    }
+  }, [book?.id]);
+
+  const handleToggleConsensus = async () => {
+    if (showAIConsensus) {
+      setShowAIConsensus(false);
+      return;
+    }
+    setShowAIConsensus(true);
+    if (!bookConsensus && book) {
+      setBookConsensusLoading(true);
+      try {
+        const text = await getBookConsensusSummary(book);
+        setBookConsensus(text);
+      } catch (err: any) {
+        Alert.alert('Gemini AI Notice', err.message || 'Could not generate summary.');
+        setBookConsensus(
+          `Readers rate "${book.title}" ${book.rating}★ (${book.ratingCount.toLocaleString()} ratings). Genres: ${book.genres.join(', ')}.`
+        );
+      } finally {
+        setBookConsensusLoading(false);
+      }
+    }
+  };
+
+  const handleAIWritingAssist = async (mode: 'improve' | 'shorten' | 'translate') => {
+    if (!reviewText.trim()) {
+      Alert.alert(
+        'Draft Required',
+        'Please write a few thoughts first, then tap an AI Helper button to polish it!'
+      );
+      return;
+    }
+
+    setAiHelperLoading(true);
+    try {
+      const suggestion = await assistReviewWriting(reviewText, mode);
+      setAiSuggestion(suggestion);
+    } catch (err: any) {
+      Alert.alert('AI Helper Notice', err.message || 'Could not generate suggestion.');
+    } finally {
+      setAiHelperLoading(false);
+    }
+  };
+
+  const handleSubmitReview = async () => {
+    if (!book) return;
+    if (!user) {
+      Alert.alert('Sign In Required', 'Please sign in to share your review with the community.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign In', onPress: onOpenAuth },
+      ]);
+      return;
+    }
+
+    if (!reviewText.trim()) {
+      Alert.alert('Empty Review', 'Please enter your thoughts before submitting your review.');
+      return;
+    }
+
+    const postText = reviewText.trim();
+    const finalRating = userRating || 5;
+
+    // Build optimistic activity so UI updates immediately
+    const newActivity: FeedActivity = {
+      id: `post_${Date.now()}`,
+      userId: user.id,
+      userName: user.name,
+      userAvatar: user.avatar,
+      activityType: 'reviewed',
+      book: {
+        ...book,
+        userRating: finalRating,
+      },
+      rating: finalRating,
+      reviewText: postText,
+      timestamp: 'Just now',
+      likes: 0,
+      commentsCount: 0,
+      isLiked: false,
+    };
+
+    if (onPostCreated) {
+      onPostCreated(newActivity);
+    }
+
+    // Automatically update book shelf to 'read' with the user's rating
+    onUpdateShelf(book.id, 'read', finalRating, book.pages);
+    setCurrentShelf('read');
+    setUserRating(finalRating);
+
+    setSubmittingReview(true);
+    try {
+      await createReviewPost({
+        bookId: book.id,
+        bookTitle: book.title,
+        bookAuthor: book.author,
+        bookCoverUrl: book.coverUrl,
+        rating: finalRating,
+        text: postText,
+        activityType: 'reviewed',
+      });
+
+      setReviewText('');
+      Alert.alert(
+        'Review Published!',
+        `Your review for "${book.title}" was successfully posted to the community feed.`
+      );
+    } catch (err: any) {
+      console.warn('Review submit error:', err);
+      Alert.alert('Submission Error', err.message || 'Could not post review. Please try again.');
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
 
   const handleShelfSelect = (
     shelf: 'want-to-read' | 'currently-reading' | 'read' | null
   ) => {
+    if (!book) return;
     setCurrentShelf(shelf);
     setShowShelfPicker(false);
     onUpdateShelf(book.id, shelf, userRating, parseInt(pagesRead, 10) || 0);
   };
 
   const handleRating = (rating: number) => {
+    if (!book) return;
     setUserRating(rating);
     onUpdateShelf(book.id, currentShelf, rating, parseInt(pagesRead, 10) || 0);
   };
 
   const handleSaveProgress = () => {
+    if (!book) return;
     const pages = parseInt(pagesRead, 10);
     if (isNaN(pages) || pages < 0 || pages > book.pages) {
       Alert.alert(
@@ -92,6 +237,10 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
         return null;
     }
   };
+
+  if (!visible || !book) {
+    return null;
+  }
 
   return (
     <Modal
@@ -205,6 +354,92 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
               </View>
             </View>
 
+            {/* Write a Community Review Card */}
+            <View style={styles.reviewCard}>
+              <Text style={styles.sectionHeader}>Write a Review</Text>
+              <TextInput
+                style={styles.reviewInput}
+                placeholder="What did you think of this book? Share your thoughts..."
+                placeholderTextColor="#999999"
+                multiline
+                numberOfLines={3}
+                value={reviewText}
+                onChangeText={setReviewText}
+              />
+
+              {/* AI Writing Helper Toolbar */}
+              <View style={styles.aiHelperToolbar}>
+                <View style={styles.aiHelperLabelRow}>
+                  <Text style={styles.aiHelperLabel}>✦ AI Writing Helper:</Text>
+                  {aiHelperLoading && (
+                    <ActivityIndicator size="small" color="#00635D" style={{ marginLeft: 6 }} />
+                  )}
+                </View>
+                <View style={styles.aiHelperButtonsRow}>
+                  <TouchableOpacity
+                    style={styles.aiHelperChip}
+                    onPress={() => handleAIWritingAssist('improve')}
+                    disabled={aiHelperLoading}
+                  >
+                    <Text style={styles.aiHelperChipText}>✦ Improve</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.aiHelperChip}
+                    onPress={() => handleAIWritingAssist('shorten')}
+                    disabled={aiHelperLoading}
+                  >
+                    <Text style={styles.aiHelperChipText}>✦ Shorten</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.aiHelperChip}
+                    onPress={() => handleAIWritingAssist('translate')}
+                    disabled={aiHelperLoading}
+                  >
+                    <Text style={styles.aiHelperChipText}>✦ Filipino</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* AI Suggestion Box (User review & confirmation) */}
+              {aiSuggestion && (
+                <View style={styles.aiSuggestionBox}>
+                  <Text style={styles.aiSuggestionHeader}>✦ Gemini AI Suggestion:</Text>
+                  <Text style={styles.aiSuggestionText}>"{aiSuggestion}"</Text>
+                  <View style={styles.aiSuggestionActions}>
+                    <TouchableOpacity
+                      style={styles.applySuggestionBtn}
+                      onPress={() => {
+                        setReviewText(aiSuggestion);
+                        setAiSuggestion(null);
+                      }}
+                    >
+                      <Text style={styles.applySuggestionBtnText}>Use Suggestion</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.discardSuggestionBtn}
+                      onPress={() => setAiSuggestion(null)}
+                    >
+                      <Text style={styles.discardSuggestionBtnText}>Keep Original</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+              <TouchableOpacity
+                style={[
+                  styles.submitReviewBtn,
+                  submittingReview && styles.btnDisabled,
+                ]}
+                onPress={handleSubmitReview}
+                disabled={submittingReview}
+              >
+                {submittingReview ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.submitReviewBtnText}>Post Review to Feed</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
             {/* Currently Reading Page Tracker */}
             {currentShelf === 'currently-reading' && (
               <View style={styles.progressCard}>
@@ -225,6 +460,37 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
                     <Text style={styles.updateProgressBtnText}>Update</Text>
                   </TouchableOpacity>
                 </View>
+              </View>
+            )}
+
+            {/* AI Reader Consensus Toggle Button */}
+            <TouchableOpacity
+              style={styles.aiConsensusToggleBtn}
+              onPress={handleToggleConsensus}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.aiConsensusToggleText}>
+                ✦ {showAIConsensus ? 'Hide Reader Consensus' : 'Summarize Reader Reviews with Gemini AI'}
+              </Text>
+            </TouchableOpacity>
+
+            {showAIConsensus && (
+              <View style={styles.aiConsensusCard}>
+                <View style={styles.aiConsensusBadge}>
+                  <Text style={styles.aiConsensusBadgeText}>✦ GEMINI CONSENSUS</Text>
+                </View>
+                {bookConsensusLoading ? (
+                  <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color="#00635D" />
+                    <Text style={{ fontSize: 11, color: '#666', marginTop: 6, fontStyle: 'italic' }}>
+                      Analyzing reader sentiment with Gemini AI...
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.aiConsensusText}>
+                    "{bookConsensus}"
+                  </Text>
+                )}
               </View>
             )}
 
@@ -407,6 +673,167 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#333',
+  },
+  aiHelperToolbar: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F0EFEA',
+  },
+  aiHelperLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  aiHelperLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#00635D',
+  },
+  aiHelperButtonsRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  aiHelperChip: {
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+    borderRadius: 12,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  aiHelperChipText: {
+    fontSize: 11,
+    color: '#2E7D32',
+    fontWeight: '700',
+  },
+  aiSuggestionBox: {
+    backgroundColor: '#F3FBF7',
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 10,
+  },
+  aiSuggestionHeader: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1B5E20',
+    marginBottom: 4,
+  },
+  aiSuggestionText: {
+    fontFamily: 'serif',
+    fontSize: 13,
+    color: '#2E7D32',
+    lineHeight: 18,
+    fontStyle: 'italic',
+  },
+  aiSuggestionActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  applySuggestionBtn: {
+    backgroundColor: '#00635D',
+    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  applySuggestionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  discardSuggestionBtn: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D8D5CD',
+    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  discardSuggestionBtnText: {
+    color: '#666',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  aiConsensusToggleBtn: {
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  aiConsensusToggleText: {
+    color: '#2E7D32',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  aiConsensusCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+    marginBottom: 14,
+  },
+  aiConsensusBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginBottom: 6,
+  },
+  aiConsensusBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#2E7D32',
+  },
+  aiConsensusText: {
+    fontFamily: 'serif',
+    fontSize: 12,
+    color: '#382110',
+    lineHeight: 18,
+    fontStyle: 'italic',
+  },
+  reviewCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#EAE5DB',
+  },
+  reviewInput: {
+    backgroundColor: '#FAF8F5',
+    borderWidth: 1,
+    borderColor: '#D8D5CD',
+    borderRadius: 6,
+    padding: 10,
+    fontSize: 13,
+    color: '#333',
+    minHeight: 70,
+    textAlignVertical: 'top',
+    marginTop: 6,
+  },
+  submitReviewBtn: {
+    backgroundColor: '#37745B',
+    borderRadius: 6,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  submitReviewBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  btnDisabled: {
+    opacity: 0.6,
   },
   rateThisBookCard: {
     backgroundColor: '#FFF',
