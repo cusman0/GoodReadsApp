@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
-import { Book, FeedActivity, UserProfile } from './src/types';
+import { Book, FeedActivity, UserProfile, AppNotification } from './src/types';
 import { BOOKS_DATA, FEED_ACTIVITIES } from './src/data/mockData';
 import { GoodreadsHeader } from './src/components/GoodreadsHeader';
 import { AIChatModal } from './src/components/AIChatModal';
@@ -32,20 +32,30 @@ import {
   deleteReviewPost,
   togglePostLike,
   auth,
+  subscribeToNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  subscribeToBooks,
+  subscribeToUserShelvedBooks,
+  saveUserShelvedBook,
+  removeUserShelvedBook,
+  saveBookToCatalog,
 } from './src/firebase';
 
 import { HomeScreen } from './src/screens/HomeScreen';
 import { MyBooksScreen } from './src/screens/MyBooksScreen';
 import { DiscoverScreen } from './src/screens/DiscoverScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
+import { NotificationsScreen } from './src/screens/NotificationsScreen';
 
 function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [books, setBooks] = useState<Book[]>(BOOKS_DATA);
   const [feed, setFeed] = useState<FeedActivity[]>(FEED_ACTIVITIES);
   const [activeTab, setActiveTab] = useState<
-    'home' | 'mybooks' | 'discover' | 'profile'
+    'home' | 'mybooks' | 'discover' | 'notifications' | 'profile'
   >('home');
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [authModalVisible, setAuthModalVisible] = useState(false);
   const [aiChatVisible, setAiChatVisible] = useState(false);
@@ -63,49 +73,43 @@ function App() {
         unsubscribeFeed = null;
       }
       try {
-        unsubscribeFeed = subscribeToCommunityPosts(posts => {
-          if (posts && posts.length > 0) {
-            const liveActivities: FeedActivity[] = posts.map(p => ({
-              id: p.id,
-              userId: p.authorId,
-              userName: p.authorName,
-              userAvatar: p.authorPhotoUrl,
-              activityType: p.activityType || 'reviewed',
-              book: {
-                id: p.bookId,
-                title: p.bookTitle,
-                author: p.bookAuthor,
-                coverUrl: p.bookCoverUrl,
-                rating: p.rating || 5,
-                ratingCount: 1,
-                reviewCount: 1,
-                pages: 320,
-                publishedYear: 2024,
-                genres: ['Fiction'],
-                description: p.text,
-              },
-              rating: p.rating,
-              reviewText: p.text,
-              timestamp: p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString() : 'Just now',
-              likes: p.likeCount || 0,
-              commentsCount: p.commentsCount || 0,
-              isLiked: Array.isArray(p.likedBy) && auth.currentUser
-                ? p.likedBy.includes(auth.currentUser.uid)
-                : false,
-            }));
-            setFeed(prev => {
-              const liveIds = new Set(liveActivities.map(l => l.id));
-              const remaining = prev.filter(f => !liveIds.has(f.id));
-              return [...liveActivities, ...remaining];
-            });
-          }
+        unsubscribeFeed = subscribeToCommunityPosts((posts: any[]) => {
+          const liveActivities: FeedActivity[] = (posts || []).map((p: any) => ({
+            id: p.id,
+            userId: p.authorId,
+            userName: p.authorName,
+            userAvatar: p.authorPhotoUrl,
+            activityType: p.activityType || 'reviewed',
+            book: {
+              id: p.bookId,
+              title: p.bookTitle,
+              author: p.bookAuthor,
+              coverUrl: p.bookCoverUrl,
+              rating: p.rating || 5,
+              ratingCount: 1,
+              reviewCount: 1,
+              pages: 320,
+              publishedYear: 2024,
+              genres: ['Fiction'],
+              description: p.text,
+            },
+            rating: p.rating,
+            reviewText: p.text,
+            timestamp: p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString() : 'Just now',
+            likes: p.likeCount || 0,
+            commentsCount: p.commentsCount || 0,
+            isLiked: Array.isArray(p.likedBy) && auth.currentUser
+              ? p.likedBy.includes(auth.currentUser.uid)
+              : false,
+          }));
+          setFeed(liveActivities);
         });
       } catch (err) {
         console.warn('Could not setup feed subscription:', err);
       }
     };
 
-    const unsubscribeAuth = subscribeToAuthState(currentUser => {
+    const unsubscribeAuth = subscribeToAuthState((currentUser: any) => {
       setUser(currentUser);
       // Re-subscribe when auth state resolves to ensure authenticated Firestore read permission
       startFeedSubscription();
@@ -121,6 +125,71 @@ function App() {
     };
   }, []);
 
+
+  // Subscribe to live community books in Firestore
+  useEffect(() => {
+    const unsub = subscribeToBooks(catalogBooks => {
+      if (catalogBooks && catalogBooks.length > 0) {
+        setBooks(prev => {
+          const map = new Map<string, Book>();
+          prev.forEach(b => map.set(b.id, b));
+          catalogBooks.forEach(cb => {
+            const existing = map.get(cb.id);
+            map.set(
+              cb.id,
+              existing
+                ? {
+                    ...cb,
+                    userShelf: existing.userShelf,
+                    userRating: existing.userRating,
+                    progressPages: existing.progressPages,
+                  }
+                : cb
+            );
+          });
+          return Array.from(map.values());
+        });
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Subscribe to logged-in user's live bookshelf and notifications in Firestore
+  useEffect(() => {
+    if (!user) {
+      setNotifications([]);
+      return;
+    }
+
+    const unsubShelves = subscribeToUserShelvedBooks(user.id, shelvedBooks => {
+      if (shelvedBooks && shelvedBooks.length > 0) {
+        setBooks(prev => {
+          const shelfMap = new Map<string, Book>(shelvedBooks.map(sb => [sb.id, sb]));
+          return prev.map(b => {
+            const shelved = shelfMap.get(b.id);
+            return shelved
+              ? {
+                  ...b,
+                  userShelf: shelved.userShelf,
+                  userRating: shelved.userRating,
+                  progressPages: shelved.progressPages,
+                }
+              : b;
+          });
+        });
+      }
+    });
+
+    const unsubNotifs = subscribeToNotifications(user.id, items => {
+      setNotifications(items);
+    });
+
+    return () => {
+      unsubShelves();
+      unsubNotifs();
+    };
+  }, [user?.id]);
+
   const handlePostCreated = (newActivity: FeedActivity) => {
     setFeed(prev => [newActivity, ...prev.filter(f => f.id !== newActivity.id)]);
   };
@@ -131,35 +200,43 @@ function App() {
     rating?: number,
     progress?: number
   ) => {
+    let updatedBook: Book | null = null;
     let nextBooks: Book[] = [];
+
     setBooks(prev => {
       const exists = prev.some(b => b.id === bookId);
       if (!exists && selectedBook && selectedBook.id === bookId) {
-        nextBooks = [
-          ...prev,
-          {
-            ...selectedBook,
-            userShelf: shelf,
-            userRating: rating !== undefined ? rating : selectedBook.userRating,
-            progressPages: progress !== undefined ? progress : selectedBook.progressPages,
-          },
-        ];
+        updatedBook = {
+          ...selectedBook,
+          userShelf: shelf,
+          userRating: rating !== undefined ? rating : selectedBook.userRating,
+          progressPages: progress !== undefined ? progress : selectedBook.progressPages,
+        };
+        nextBooks = [...prev, updatedBook];
       } else {
         nextBooks = prev.map(b => {
           if (b.id === bookId) {
-            return {
+            updatedBook = {
               ...b,
               userShelf: shelf,
               userRating: rating !== undefined ? rating : b.userRating,
               progressPages: progress !== undefined ? progress : b.progressPages,
             };
+            return updatedBook;
           }
           return b;
         });
       }
 
-      // Synchronize live user bookshelf metrics & reading challenge progress
-      if (user) {
+      // Persist to Cloud Firestore in real-time
+      if (user && updatedBook) {
+        saveBookToCatalog(updatedBook);
+        if (shelf) {
+          saveUserShelvedBook(user.id, updatedBook);
+        } else {
+          removeUserShelvedBook(user.id, bookId);
+        }
+
         const readCount = nextBooks.filter(b => b.userShelf === 'read').length;
         const readingCount = nextBooks.filter(b => b.userShelf === 'currently-reading').length;
         const wantCount = nextBooks.filter(b => b.userShelf === 'want-to-read').length;
@@ -176,7 +253,6 @@ function App() {
             : null
         );
 
-        // Update Cloud Firestore in background
         updateUserReadingProgress(user.id, readCount, {
           read: readCount,
           reading: readingCount,
@@ -187,7 +263,6 @@ function App() {
       return nextBooks;
     });
 
-    // Also update selectedBook if open
     if (selectedBook && selectedBook.id === bookId) {
       setSelectedBook(prev =>
         prev
@@ -295,6 +370,23 @@ function App() {
     setCommentPostTitle(bookTitle);
   };
 
+
+  const handleNotificationPress = async (notif: AppNotification) => {
+    if (!notif.read) {
+      await markNotificationAsRead(notif.id);
+    }
+    if (notif.postId) {
+      setCommentPostId(notif.postId);
+      setCommentPostTitle(notif.bookTitle || 'Review');
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    if (user) {
+      await markAllNotificationsAsRead(user.id);
+    }
+  };
+
   const handleLoginSuccess = (newUser: UserProfile) => {
     setUser(newUser);
     Alert.alert(
@@ -360,6 +452,16 @@ function App() {
             />
           )}
 
+          {activeTab === 'notifications' && (
+            <NotificationsScreen
+              notifications={notifications}
+              user={user}
+              onOpenAuth={() => setAuthModalVisible(true)}
+              onNotificationPress={handleNotificationPress}
+              onMarkAllAsRead={handleMarkAllNotificationsRead}
+            />
+          )}
+
           {activeTab === 'profile' && (
             <ProfileScreen
               user={user}
@@ -371,6 +473,8 @@ function App() {
               onUpdateGoal={handleUpdateGoal}
               onEditPost={handleEditPost}
               onDeletePost={handleDeletePost}
+              onLikePost={handleLikePost}
+              onOpenComments={handleOpenComments}
             />
           )}
         </View>
@@ -434,6 +538,37 @@ function App() {
             </Text>
           </TouchableOpacity>
 
+
+          <TouchableOpacity
+            style={styles.tabBtn}
+            onPress={() => setActiveTab('notifications')}
+          >
+            <View style={styles.iconWithBadge}>
+              <Icon
+                name="bell"
+                size={20}
+                color={activeTab === 'notifications' ? '#00635D' : '#767676'}
+              />
+              {notifications.filter(n => !n.read).length > 0 && (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>
+                    {notifications.filter(n => !n.read).length > 9
+                      ? '9+'
+                      : notifications.filter(n => !n.read).length}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text
+              style={[
+                styles.tabLabel,
+                activeTab === 'notifications' && styles.activeTabLabel,
+              ]}
+            >
+              Inbox
+            </Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.tabBtn}
             onPress={() => setActiveTab('profile')}
@@ -494,6 +629,11 @@ function App() {
           user={user}
           onOpenAuth={() => setAuthModalVisible(true)}
           onPostCreated={handlePostCreated}
+          feed={feed}
+          onLikePost={handleLikePost}
+          onOpenComments={handleOpenComments}
+          onEditPost={handleEditPost}
+          onDeletePost={handleDeletePost}
         />
       </SafeAreaView>
     </SafeAreaProvider>
@@ -533,6 +673,28 @@ const styles = StyleSheet.create({
   },
   activeTabLabel: {
     color: '#00635D',
+    fontWeight: '700',
+  },
+  iconWithBadge: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -8,
+    backgroundColor: '#C0392B',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  tabBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
     fontWeight: '700',
   },
 });

@@ -28,35 +28,65 @@ service cloud.firestore {
       allow create: if isUser(uid);
       allow update: if isUser(uid) || isAdmin();
       allow delete: if isAdmin();
+
+      // User Shelved Books subcollection
+      match /shelvedBooks/{bookId} {
+        allow read: if isSignedIn();
+        allow write: if isUser(uid);
+      }
     }
 
     // 2. Posts collection
     // Posts can be created ONLY with authorId == request.auth.uid
     match /posts/{postId} {
-      allow read: if isSignedIn();
+      allow read: if true; // Public read for reader community
       allow create: if isSignedIn() &&
                        request.auth.uid == request.resource.data.authorId &&
                        isNotDisabled();
       allow update: if (isUser(resource.data.authorId) && isNotDisabled()) ||
-                       // Non-authors may only increment/decrement likeCount
-                       (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount']));
+                       // Non-authors may only toggle like (likeCount + likedBy)
+                       (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'likedBy'])) ||
+                       // Anyone signed in can update commentsCount
+                       (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentsCount']));
       allow delete: if isUser(resource.data.authorId) || isAdmin();
+
+      // Comments subcollection
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isSignedIn() && isNotDisabled() && request.auth.uid == request.resource.data.authorId;
+        allow delete: if isSignedIn() && (request.auth.uid == resource.data.authorId || isAdmin());
+        allow update: if false;
+      }
     }
 
-    // 3. Admins collection
+    // 3. Books collection (Live Community Catalog)
+    match /books/{bookId} {
+      allow read: if true;
+      allow write: if isSignedIn() && isNotDisabled();
+    }
+
+    // 4. Notifications collection
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.recipientId == request.auth.uid;
+      allow create: if isSignedIn() && isNotDisabled() && request.auth.uid == request.resource.data.senderId;
+      allow update: if isSignedIn() && resource.data.recipientId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.recipientId == request.auth.uid;
+    }
+
+    // 5. Admins collection
     // Only users in admins/{uid} get admin access
     match /admins/{uid} {
       allow read: if isSignedIn();
       allow write: if false; // Only manageable directly via Firebase Console or Admin SDK
     }
 
-    // 4. Summaries collection
+    // 6. Summaries collection
     match /summaries/{summaryId} {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && isNotDisabled();
     }
 
-    // 5. Insights collection
+    // 7. Insights collection
     // Only users in admins/{uid} get write access to insights
     match /insights/{insightId} {
       allow read: if isSignedIn();
@@ -64,4 +94,3 @@ service cloud.firestore {
     }
   }
 }
-

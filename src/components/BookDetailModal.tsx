@@ -30,6 +30,11 @@ interface BookDetailModalProps {
   user?: UserProfile | null;
   onOpenAuth?: () => void;
   onPostCreated?: (newActivity: FeedActivity) => void;
+  feed?: FeedActivity[];
+  onLikePost?: (postId: string, currentlyLiked: boolean) => void;
+  onOpenComments?: (postId: string, bookTitle: string) => void;
+  onEditPost?: (activity: FeedActivity) => void;
+  onDeletePost?: (postId: string) => void;
 }
 
 export const BookDetailModal: React.FC<BookDetailModalProps> = ({
@@ -40,7 +45,18 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
   user,
   onOpenAuth,
   onPostCreated,
+  feed = [],
+  onLikePost,
+  onOpenComments,
+  onEditPost,
+  onDeletePost,
 }) => {
+  const bookReviews = (feed || []).filter(
+    p =>
+      (p.book?.id && book?.id && p.book.id === book.id) ||
+      (p.book?.title && book?.title && p.book.title.toLowerCase() === book.title.toLowerCase())
+  );
+
   const [currentShelf, setCurrentShelf] = useState<
     'want-to-read' | 'currently-reading' | 'read' | null
   >(book?.userShelf || null);
@@ -526,6 +542,134 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
                 </View>
               </View>
             </View>
+            {/* Live Community Reviews for this Book */}
+            <View style={styles.detailsCard}>
+              <Text style={styles.sectionHeader}>
+                Community Reviews ({bookReviews.length})
+              </Text>
+
+              {bookReviews.length > 0 ? (
+                bookReviews.map(reviewItem => {
+                  const isAuthor =
+                    user &&
+                    (reviewItem.userId === user.id ||
+                      (user.name && reviewItem.userName === user.name));
+
+                  return (
+                    <View key={reviewItem.id} style={styles.bookReviewItem}>
+                      <View style={styles.bookReviewUserRow}>
+                        {reviewItem.userAvatar ? (
+                          <Image
+                            source={{ uri: reviewItem.userAvatar }}
+                            style={styles.bookReviewAvatar}
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              styles.bookReviewAvatar,
+                              styles.bookReviewAvatarFallback,
+                            ]}
+                          >
+                            <Text style={styles.bookReviewAvatarText}>
+                              {reviewItem.userName.charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={styles.bookReviewUserInfo}>
+                          <Text style={styles.bookReviewUserName}>
+                            {reviewItem.userName}
+                          </Text>
+                          <View style={styles.bookReviewRatingRow}>
+                            <StarRating rating={reviewItem.rating || 5} size={11} />
+                            <Text style={styles.bookReviewDate}>
+                              {reviewItem.timestamp}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+
+                      {Boolean(reviewItem.reviewText) && (
+                        <Text style={styles.bookReviewBody}>
+                          "{reviewItem.reviewText}"
+                        </Text>
+                      )}
+
+                      {/* Author Edit / Delete */}
+                      {isAuthor && (
+                        <View style={styles.bookReviewOwnerRow}>
+                          <TouchableOpacity
+                            style={styles.bookReviewOwnerBtn}
+                            onPress={() => onEditPost && onEditPost(reviewItem)}
+                          >
+                            <Icon name="edit" size={11} color="#00635D" />
+                            <Text style={styles.bookReviewOwnerBtnText}>Edit</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.bookReviewOwnerBtn}
+                            onPress={() => onDeletePost && onDeletePost(reviewItem.id)}
+                          >
+                            <Icon name="trash" size={11} color="#C0392B" />
+                            <Text style={[styles.bookReviewOwnerBtnText, { color: '#C0392B' }]}>
+                              Delete
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+
+                      {/* Interactive Like & Comment Buttons */}
+                      <View style={styles.bookReviewActionsRow}>
+                        <TouchableOpacity
+                          style={styles.bookReviewActionBtn}
+                          onPress={() =>
+                            onLikePost &&
+                            onLikePost(reviewItem.id, reviewItem.isLiked || false)
+                          }
+                          activeOpacity={0.7}
+                        >
+                          <Icon
+                            name="heart"
+                            size={12}
+                            color={reviewItem.isLiked ? '#C0392B' : '#767676'}
+                          />
+                          <Text
+                            style={[
+                              styles.bookReviewActionText,
+                              reviewItem.isLiked && {
+                                color: '#C0392B',
+                                fontWeight: '700',
+                              },
+                            ]}
+                          >
+                            {reviewItem.likes || 0}{' '}
+                            {reviewItem.isLiked ? 'Liked' : 'Like'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.bookReviewActionBtn}
+                          onPress={() =>
+                            onOpenComments &&
+                            onOpenComments(reviewItem.id, book.title)
+                          }
+                          activeOpacity={0.7}
+                        >
+                          <Icon name="comment" size={12} color="#767676" />
+                          <Text style={styles.bookReviewActionText}>
+                            {reviewItem.commentsCount || 0} Comments
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })
+              ) : (
+                <View style={styles.emptyBookReviewsBox}>
+                  <Text style={styles.emptyBookReviewsText}>
+                    No community reviews for this book yet. Be the first to share your review above!
+                  </Text>
+                </View>
+              )}
+            </View>
           </ScrollView>
         </View>
       </View>
@@ -534,6 +678,102 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
 };
 
 const styles = StyleSheet.create({
+  bookReviewItem: {
+    backgroundColor: '#F7F5F0',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#E8E2D5',
+  },
+  bookReviewUserRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  bookReviewAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  bookReviewAvatarFallback: {
+    backgroundColor: '#00635D',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bookReviewAvatarText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  bookReviewUserInfo: {
+    flex: 1,
+  },
+  bookReviewUserName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#382110',
+  },
+  bookReviewRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  bookReviewDate: {
+    fontSize: 10,
+    color: '#8D8070',
+  },
+  bookReviewBody: {
+    fontSize: 13,
+    color: '#382110',
+    lineHeight: 18,
+    marginBottom: 8,
+  },
+  bookReviewOwnerRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 6,
+  },
+  bookReviewOwnerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  bookReviewOwnerBtnText: {
+    fontSize: 11,
+    color: '#00635D',
+    fontWeight: '600',
+  },
+  bookReviewActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#EAE5DB',
+  },
+  bookReviewActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  bookReviewActionText: {
+    fontSize: 11,
+    color: '#767676',
+    fontWeight: '500',
+  },
+  emptyBookReviewsBox: {
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  emptyBookReviewsText: {
+    fontSize: 12,
+    color: '#767676',
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',

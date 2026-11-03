@@ -38,6 +38,8 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onUpdateGoal,
   onEditPost,
   onDeletePost,
+  onLikePost,
+  onOpenComments,
 }) => {
   const [imageError, setImageError] = useState(false);
   const [goalModalVisible, setGoalModalVisible] = useState(false);
@@ -287,6 +289,28 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 </TouchableOpacity>
               </View>
 
+              <View style={styles.profileSocialRow}>
+                <TouchableOpacity
+                  style={styles.profileSocialBtn}
+                  onPress={() => onLikePost && onLikePost(r.id, r.isLiked || false)}
+                  activeOpacity={0.7}
+                >
+                  <Icon name="heart" size={13} color={r.isLiked ? '#C0392B' : '#767676'} />
+                  <Text style={[styles.profileSocialText, r.isLiked && { color: '#C0392B', fontWeight: '700' }]}>
+                    {r.likes || 0} {r.isLiked ? 'Liked' : 'Like'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.profileSocialBtn}
+                  onPress={() => onOpenComments && onOpenComments(r.id, r.book?.title || 'Review')}
+                  activeOpacity={0.7}
+                >
+                  <Icon name="comment" size={13} color="#767676" />
+                  <Text style={styles.profileSocialText}>
+                    {r.commentsCount || 0} Comments
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           ))
         ) : (
@@ -411,8 +435,28 @@ const styles = StyleSheet.create({
   },
   profileDeleteBtnText: {
     fontSize: 12,
-    fontWeight: '600',
     color: '#C0392B',
+    fontWeight: '600',
+  },
+  profileSocialRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F0ECE1',
+  },
+  profileSocialBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+  },
+  profileSocialText: {
+    fontSize: 12,
+    color: '#767676',
+    fontWeight: '500',
   },
 
   container: {

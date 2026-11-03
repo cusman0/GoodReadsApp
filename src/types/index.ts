@@ -44,6 +44,31 @@ export interface FeedActivity {
   isLiked?: boolean;
 }
 
+export interface Comment {
+  id: string;
+  postId: string;
+  authorId: string;
+  authorName: string;
+  authorPhotoUrl: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface AppNotification {
+  id: string;
+  recipientId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar: string;
+  type: 'like' | 'comment';
+  postId: string;
+  bookTitle: string;
+  bookCoverUrl?: string;
+  commentText?: string;
+  read: boolean;
+  createdAt: string;
+}
+
 export interface UserProfile {
   id: string;
   name: string;
@@ -56,4 +81,3 @@ export interface UserProfile {
   readingChallengeGoal: number;
   readingChallengeProgress: number;
 }
-

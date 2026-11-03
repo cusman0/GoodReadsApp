@@ -27,9 +27,11 @@ import {
   arrayUnion,
   arrayRemove,
   addDoc,
+  where,
+  getDocs,
 } from 'firebase/firestore';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import type { UserProfile, Comment } from './types';
+import type { UserProfile, Comment, AppNotification, Book } from './types';
 
 export const firebaseConfig = {
   apiKey: "AIzaSyDDcjNMSsDRsa2xrhePfC_xAk-Pcf-9PG8",
@@ -655,6 +657,7 @@ export async function deleteReviewPost(postId: string): Promise<void> {
 /**
  * Toggle like on a post for the current user.
  * Uses arrayUnion/arrayRemove on likedBy field + increment on likeCount.
+ * Automatically notifies the post author in real-time.
  */
 export async function togglePostLike(
   postId: string,
@@ -675,6 +678,30 @@ export async function togglePostLike(
       likeCount: increment(1),
       likedBy: arrayUnion(currentUser.uid),
     });
+
+    // Send real-time notification to post author
+    try {
+      const postSnap = await getDoc(postRef);
+      if (postSnap.exists()) {
+        const postData = postSnap.data();
+        if (postData.authorId && postData.authorId !== currentUser.uid) {
+          await addDoc(collection(db, 'notifications'), {
+            recipientId: postData.authorId,
+            senderId: currentUser.uid,
+            senderName: currentUser.displayName || 'A Reader',
+            senderAvatar: currentUser.photoURL || '',
+            type: 'like',
+            postId,
+            bookTitle: postData.bookTitle || 'your review',
+            bookCoverUrl: postData.bookCoverUrl || '',
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        }
+      }
+    } catch (notifErr) {
+      console.warn('Could not create like notification:', notifErr);
+    }
   }
 }
 
@@ -708,7 +735,7 @@ export function subscribeToComments(
 }
 
 /**
- * Add a comment to a post.
+ * Add a comment to a post and trigger real-time notification to author.
  */
 export async function addComment(postId: string, text: string): Promise<void> {
   const currentUser = auth.currentUser;
@@ -724,6 +751,31 @@ export async function addComment(postId: string, text: string): Promise<void> {
     createdAt: serverTimestamp(),
   });
   await updateDoc(doc(db, 'posts', postId), { commentsCount: increment(1) });
+
+  // Send real-time notification to post author
+  try {
+    const postSnap = await getDoc(doc(db, 'posts', postId));
+    if (postSnap.exists()) {
+      const postData = postSnap.data();
+      if (postData.authorId && postData.authorId !== currentUser.uid) {
+        await addDoc(collection(db, 'notifications'), {
+          recipientId: postData.authorId,
+          senderId: currentUser.uid,
+          senderName: currentUser.displayName || 'Reader',
+          senderAvatar: currentUser.photoURL || '',
+          type: 'comment',
+          postId,
+          bookTitle: postData.bookTitle || 'your review',
+          bookCoverUrl: postData.bookCoverUrl || '',
+          commentText: text.trim(),
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+      }
+    }
+  } catch (notifErr) {
+    console.warn('Could not create comment notification:', notifErr);
+  }
 }
 
 /**
@@ -739,4 +791,159 @@ export async function deleteComment(
   }
   await deleteDoc(doc(db, 'posts', postId, 'comments', commentId));
   await updateDoc(doc(db, 'posts', postId), { commentsCount: increment(-1) });
+}
+
+/**
+ * Real-time subscription to notifications for a specific user
+ */
+export function subscribeToNotifications(
+  userId: string,
+  onUpdate: (notifications: AppNotification[]) => void
+): () => void {
+  const notifRef = collection(db, 'notifications');
+  const q = query(
+    notifRef,
+    where('recipientId', '==', userId)
+  );
+
+  return onSnapshot(
+    q,
+    snapshot => {
+      const items: AppNotification[] = snapshot.docs.map(d => {
+        const data = d.data();
+        let formattedDate = 'Just now';
+        if (data.createdAt?.toDate) {
+          const dt = data.createdAt.toDate();
+          const diffMs = Date.now() - dt.getTime();
+          const diffMins = Math.floor(diffMs / (1000 * 60));
+          if (diffMins < 1) formattedDate = 'Just now';
+          else if (diffMins < 60) formattedDate = `${diffMins}m ago`;
+          else {
+            const diffHours = Math.floor(diffMins / 60);
+            if (diffHours < 24) formattedDate = `${diffHours}h ago`;
+            else formattedDate = dt.toLocaleDateString();
+          }
+        }
+        return {
+          id: d.id,
+          recipientId: data.recipientId,
+          senderId: data.senderId,
+          senderName: data.senderName || 'A Reader',
+          senderAvatar: data.senderAvatar || '',
+          type: data.type || 'like',
+          postId: data.postId,
+          bookTitle: data.bookTitle || '',
+          bookCoverUrl: data.bookCoverUrl || '',
+          commentText: data.commentText || '',
+          read: Boolean(data.read),
+          createdAt: formattedDate,
+        };
+      });
+      items.sort((a, b) => b.id.localeCompare(a.id));
+      onUpdate(items);
+    },
+    err => {
+      console.warn('subscribeToNotifications notice:', err);
+    }
+  );
+}
+
+/**
+ * Mark a single notification as read
+ */
+export async function markNotificationAsRead(notificationId: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) return;
+  await updateDoc(doc(db, 'notifications', notificationId), { read: true });
+}
+
+/**
+ * Mark all unread notifications for a user as read
+ */
+export async function markAllNotificationsAsRead(userId: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || currentUser.uid !== userId) return;
+  const q = query(
+    collection(db, 'notifications'),
+    where('recipientId', '==', userId),
+    where('read', '==', false)
+  );
+  const snap = await getDocs(q);
+  const updates = snap.docs.map(d => updateDoc(d.ref, { read: true }));
+  await Promise.all(updates);
+}
+
+/**
+ * Save a book into Cloud Firestore's live books collection
+ */
+export async function saveBookToCatalog(book: Book): Promise<void> {
+  try {
+    const bookRef = doc(db, 'books', book.id);
+    await setDoc(bookRef, book, { merge: true });
+  } catch (err) {
+    console.warn('saveBookToCatalog notice:', err);
+  }
+}
+
+/**
+ * Real-time subscription to the live community books catalog in Firestore
+ */
+export function subscribeToBooks(onBooksUpdate: (books: Book[]) => void): () => void {
+  const booksColRef = collection(db, 'books');
+  return onSnapshot(
+    booksColRef,
+    snapshot => {
+      if (!snapshot.empty) {
+        const books = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Book));
+        onBooksUpdate(books);
+      }
+    },
+    err => {
+      console.warn('subscribeToBooks notice:', err);
+    }
+  );
+}
+
+/**
+ * Persist user bookshelf status (want-to-read / reading / read / rating / pages) to Firestore
+ */
+export async function saveUserShelvedBook(userId: string, book: Book): Promise<void> {
+  try {
+    const shelfDocRef = doc(db, 'users', userId, 'shelvedBooks', book.id);
+    await setDoc(shelfDocRef, book, { merge: true });
+  } catch (err) {
+    console.warn('saveUserShelvedBook notice:', err);
+  }
+}
+
+/**
+ * Remove a book from user's bookshelf in Firestore
+ */
+export async function removeUserShelvedBook(userId: string, bookId: string): Promise<void> {
+  try {
+    const shelfDocRef = doc(db, 'users', userId, 'shelvedBooks', bookId);
+    await deleteDoc(shelfDocRef);
+  } catch (err) {
+    console.warn('removeUserShelvedBook notice:', err);
+  }
+}
+
+/**
+ * Real-time subscription to a user's shelved books in Firestore
+ */
+export function subscribeToUserShelvedBooks(
+  userId: string,
+  onUpdate: (shelvedBooks: Book[]) => void
+): () => void {
+  const colRef = collection(db, 'users', userId, 'shelvedBooks');
+  return onSnapshot(
+    colRef,
+    snapshot => {
+      const books = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Book));
+      onUpdate(books);
+    },
+    err => {
+      console.warn('subscribeToUserShelvedBooks notice:', err);
+    }
+  );
 }

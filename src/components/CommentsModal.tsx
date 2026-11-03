@@ -43,7 +43,7 @@ export const CommentsModal: React.FC<CommentsModalProps> = ({
     }
     setLoading(true);
     setComments([]);
-    const unsub = subscribeToComments(postId, (incoming) => {
+    const unsub = subscribeToComments(postId, (incoming: Comment[]) => {
       setComments(incoming);
       setLoading(false);
     });

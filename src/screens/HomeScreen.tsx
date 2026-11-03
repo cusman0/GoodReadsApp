@@ -388,9 +388,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   <View style={styles.myReviewBadge}>
                     <Text style={styles.myReviewBadgeText}>✓ Your Verified Review</Text>
                   </View>
-                  <View style={styles.myReviewStatsRow}>
-                    <Icon name="heart" size={12} color="#C0392B" />
-                    <Text style={styles.myReviewStatText}>{item.likes || 0} likes</Text>
+                  <View style={styles.feedActionsRow}>
+                    <TouchableOpacity
+                      style={styles.feedActionBtn}
+                      onPress={() => onLikePost && onLikePost(item.id, item.isLiked || false)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.feedActionBtnInner}>
+                        <Icon name="heart" size={13} color={item.isLiked ? '#C0392B' : '#767676'} />
+                        <Text style={[styles.feedActionBtnText, item.isLiked && { color: '#C0392B', fontWeight: '700' }]}>
+                          {item.likes || 0} {item.isLiked ? 'Liked' : 'Like'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.feedActionBtn}
+                      onPress={() => onOpenComments && onOpenComments(item.id, item.book.title)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.feedActionBtnInner}>
+                        <Icon name="comment" size={13} color="#767676" />
+                        <Text style={styles.feedActionBtnText}>{item.commentsCount || 0} Comments</Text>
+                      </View>
+                    </TouchableOpacity>
                   </View>
                 </View>
               </View>
