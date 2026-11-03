@@ -728,6 +728,17 @@ function App() {
           onEditPost={handleEditPost}
           onDeletePost={handleDeletePost}
         />
+
+        {/* Community Reader Profile Modal */}
+        <ViewUserProfileModal
+          visible={Boolean(selectedCommunityUser)}
+          targetUser={selectedCommunityUser}
+          currentUser={user}
+          onClose={() => setSelectedCommunityUser(null)}
+          onSelectBook={setSelectedBook}
+          onLikePost={handleLikePost}
+          onOpenComments={handleOpenComments}
+        />
       </SafeAreaView>
     </SafeAreaProvider>
   );

@@ -1717,6 +1717,40 @@ export function subscribeToOtherUserPublicReviews(
           date: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString() : 'Recently',
         });
       }
+
+      // If no reviews in reviews collection, check posts collection for backward compatibility
+      if (items.length === 0) {
+        try {
+          const postsCol = collection(db, 'posts');
+          const postsSnap = await getDocs(query(postsCol, where('authorId', '==', targetUserId)));
+          postsSnap.forEach(pd => {
+            const pdata = pd.data();
+            items.push({
+              id: pd.id,
+              ownerId: targetUserId,
+              bookId: pdata.bookId,
+              bookTitle: pdata.bookTitle,
+              bookAuthor: pdata.bookAuthor,
+              bookCoverUrl: pdata.bookCoverUrl,
+              rating: pdata.rating || 5,
+              reviewText: pdata.text || '',
+              visibility: 'public',
+              activityType: pdata.activityType || 'reviewed',
+              createdAt: pdata.createdAt,
+              userName: profile.displayName || pdata.authorName || 'Reader',
+              userAvatar: profile.photoURL || pdata.authorPhotoUrl || '',
+              likesCount: pdata.likeCount || 0,
+              commentsCount: pdata.commentsCount || 0,
+              likes: pdata.likeCount || 0,
+              isLiked: Array.isArray(pdata.likedBy) && currentUid ? pdata.likedBy.includes(currentUid) : false,
+              date: pdata.createdAt?.toDate ? pdata.createdAt.toDate().toLocaleDateString() : 'Recently',
+            });
+          });
+        } catch (e) {
+          // ignore
+        }
+      }
+
       items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       onUpdate(items);
     },
