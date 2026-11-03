@@ -147,30 +147,6 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
     const postText = reviewText.trim();
     const finalRating = userRating || 5;
 
-    // Build optimistic activity so UI updates immediately
-    const newActivity: FeedActivity = {
-      id: `post_${Date.now()}`,
-      userId: user.id,
-      userName: user.name,
-      userAvatar: user.avatar,
-      activityType: 'reviewed',
-      book: {
-        ...book,
-        userRating: finalRating,
-      },
-      rating: finalRating,
-      reviewText: postText,
-      visibility,
-      timestamp: 'Just now',
-      likes: 0,
-      commentsCount: 0,
-      isLiked: false,
-    };
-
-    if (onPostCreated) {
-      onPostCreated(newActivity);
-    }
-
     // Automatically update book shelf to 'read' with the user's rating
     onUpdateShelf(book.id, 'read', finalRating, book.pages);
     setCurrentShelf('read');
@@ -178,13 +154,36 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
 
     setSubmittingReview(true);
     try {
-      await createReview({
+      const createdReviewId = await createReview({
         book,
         rating: finalRating,
         reviewText: postText,
         visibility,
         activityType: 'reviewed',
       });
+
+      const newActivity: FeedActivity = {
+        id: createdReviewId,
+        userId: user.id,
+        userName: user.name,
+        userAvatar: user.avatar,
+        activityType: 'reviewed',
+        book: {
+          ...book,
+          userRating: finalRating,
+        },
+        rating: finalRating,
+        reviewText: postText,
+        visibility,
+        timestamp: 'Just now',
+        likes: 0,
+        commentsCount: 0,
+        isLiked: false,
+      };
+
+      if (onPostCreated) {
+        onPostCreated(newActivity);
+      }
 
       setReviewText('');
       Alert.alert(

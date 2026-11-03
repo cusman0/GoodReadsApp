@@ -11,12 +11,19 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    function isReviewOwner(data) {
+      return isSignedIn() && (
+        (data.ownerId != null && request.auth.uid == data.ownerId) ||
+        (data.authorId != null && request.auth.uid == data.authorId)
+      );
+    }
+
     function isParentReviewPublic(reviewId) {
       return get(/databases/$(database)/documents/reviews/$(reviewId)).data.visibility == 'public';
     }
 
     function isParentReviewOwner(reviewId) {
-      return isSignedIn() && get(/databases/$(database)/documents/reviews/$(reviewId)).data.ownerId == request.auth.uid;
+      return isSignedIn() && isReviewOwner(get(/databases/$(database)/documents/reviews/$(reviewId)).data);
     }
 
     // 1. Users collection
@@ -34,19 +41,16 @@ service cloud.firestore {
     }
 
     // 2. Reviews collection
-    // Read allowed only if visibility is "public" or user is the owner
-    // Create, edit, delete allowed only for the owner
+    // Read allowed if visibility is "public" or user is the owner
+    // Create, edit, delete allowed for the owner
     match /reviews/{reviewId} {
-      allow read: if resource.data.visibility == 'public' || isUser(resource.data.ownerId);
+      allow read: if resource.data.visibility == 'public' || isReviewOwner(resource.data);
       allow create: if isSignedIn()
-                    && request.auth.uid == request.resource.data.ownerId
-                    && (request.resource.data.visibility == 'public' || request.resource.data.visibility == 'private');
-      allow update: if isUser(resource.data.ownerId)
-                    && (request.resource.data.visibility == 'public' || request.resource.data.visibility == 'private');
-      allow delete: if isUser(resource.data.ownerId);
+                    && (request.auth.uid == request.resource.data.ownerId || request.auth.uid == request.resource.data.authorId);
+      allow update: if isReviewOwner(resource.data);
+      allow delete: if isReviewOwner(resource.data);
 
       // 2a. Likes subcollection
-      // Document ID is the user's uid
       match /likes/{uid} {
         allow read: if isParentReviewPublic(reviewId) || isParentReviewOwner(reviewId);
         allow create: if isUser(uid) && isParentReviewPublic(reviewId);
@@ -66,7 +70,6 @@ service cloud.firestore {
     }
 
     // 3. Books collection
-    // Anyone can read. A signed-in user can create only if it does not exist yet.
     match /books/{bookId} {
       allow read: if true;
       allow create: if isSignedIn() && !exists(/databases/$(database)/documents/books/$(bookId));
@@ -84,16 +87,17 @@ service cloud.firestore {
     // Backward-compatibility: posts collection
     match /posts/{postId} {
       allow read: if true;
-      allow create: if isSignedIn() && request.auth.uid == request.resource.data.authorId;
-      allow update: if isUser(resource.data.authorId)
+      allow create: if isSignedIn();
+      allow update: if isReviewOwner(resource.data)
                     || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'likedBy']))
-                    || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentsCount']));
-      allow delete: if isUser(resource.data.authorId);
+                    || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentsCount']))
+                    || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visibility']));
+      allow delete: if isReviewOwner(resource.data);
 
       match /comments/{commentId} {
         allow read: if true;
         allow create: if isSignedIn() && request.auth.uid == request.resource.data.authorId;
-        allow delete: if isSignedIn() && request.auth.uid == resource.data.authorId;
+        allow delete: if isSignedIn() && (request.auth.uid == resource.data.authorId || isReviewOwner(get(/databases/$(database)/documents/posts/$(postId)).data));
         allow update: if false;
       }
     }

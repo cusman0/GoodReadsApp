@@ -14,7 +14,8 @@ import { Book, FeedActivity, UserProfile } from '../types';
 import { Icon } from '../components/Icon';
 import { StarRating } from '../components/StarRating';
 import { EditProfileModal } from '../components/EditProfileModal';
-import { updateReview } from '../firebase';
+import { updateReview, subscribeToUserReviews } from '../firebase';
+import type { Review } from '../types';
 
 interface ProfileScreenProps {
   user: UserProfile | null;
@@ -29,6 +30,7 @@ interface ProfileScreenProps {
   onLikePost?: (postId: string, currentlyLiked: boolean) => void;
   onOpenComments?: (postId: string, bookTitle: string) => void;
   onProfileUpdated?: (updated: Partial<UserProfile>) => void;
+  onVisibilityChange?: (postId: string, nextVisibility: 'public' | 'private') => void;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
@@ -44,6 +46,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onLikePost,
   onOpenComments,
   onProfileUpdated,
+  onVisibilityChange,
 }) => {
   const [imageError, setImageError] = useState(false);
   const [goalModalVisible, setGoalModalVisible] = useState(false);
@@ -51,10 +54,51 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [goalInput, setGoalInput] = useState(
     String(user?.readingChallengeGoal || 12)
   );
+  const [localReviews, setLocalReviews] = useState<FeedActivity[]>([]);
 
   useEffect(() => {
     setImageError(false);
   }, [user?.avatar]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setLocalReviews([]);
+      return;
+    }
+    const unsub = subscribeToUserReviews(user.id, (userFirestoreReviews: Review[]) => {
+      if (userFirestoreReviews && userFirestoreReviews.length > 0) {
+        const mapped: FeedActivity[] = userFirestoreReviews.map(r => ({
+          id: r.id,
+          userId: r.ownerId,
+          userName: r.userName || user.name,
+          userAvatar: r.userAvatar || user.avatar,
+          activityType: r.activityType || 'reviewed',
+          book: {
+            id: r.bookId,
+            title: r.bookTitle || 'Book',
+            author: r.bookAuthor || 'Unknown Author',
+            coverUrl: r.bookCoverUrl || '',
+            rating: r.rating,
+            ratingCount: 1,
+            reviewCount: 1,
+            pages: 300,
+            publishedYear: 2024,
+            genres: ['Fiction'],
+            description: r.reviewText || '',
+          },
+          rating: r.rating,
+          reviewText: r.reviewText,
+          visibility: r.visibility,
+          timestamp: r.date || 'Recently',
+          likes: r.likesCount || r.likes || 0,
+          commentsCount: r.commentsCount || 0,
+          isLiked: r.isLiked || false,
+        }));
+        setLocalReviews(mapped);
+      }
+    });
+    return () => unsub();
+  }, [user?.id]);
 
   useEffect(() => {
     if (user?.readingChallengeGoal) {
@@ -105,6 +149,12 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
   const handleChangeVisibility = async (r: FeedActivity) => {
     const nextVisibility = r.visibility === 'public' ? 'private' : 'public';
+    setLocalReviews(prev =>
+      prev.map(item => (item.id === r.id ? { ...item, visibility: nextVisibility } : item))
+    );
+    if (onVisibilityChange) {
+      onVisibilityChange(r.id, nextVisibility);
+    }
     try {
       await updateReview(r.id, { visibility: nextVisibility });
       Alert.alert(
@@ -112,6 +162,12 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         `Review visibility changed to ${nextVisibility === 'public' ? 'Public' : 'Only me'}.`
       );
     } catch (err: any) {
+      setLocalReviews(prev =>
+        prev.map(item => (item.id === r.id ? { ...item, visibility: r.visibility } : item))
+      );
+      if (onVisibilityChange) {
+        onVisibilityChange(r.id, r.visibility);
+      }
       Alert.alert('Error', err.message || 'Could not update visibility.');
     }
   };
@@ -158,9 +214,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   }
 
   const readBooks = books.filter(b => b.userShelf === 'read');
-  const userReviews = feed.filter(
+  const fallbackFeedReviews = feed.filter(
     f => f.userId === user.id || (user.name && f.userName === user.name)
   );
+  const userReviews = localReviews.length > 0 ? localReviews : fallbackFeedReviews;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>

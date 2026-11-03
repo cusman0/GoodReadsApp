@@ -1220,12 +1220,40 @@ export async function updateReview(
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error('You must be signed in to edit your review.');
 
-  const reviewRef = doc(db, 'reviews', reviewId);
   const payload: any = { updatedAt: serverTimestamp() };
-  if (params.reviewText !== undefined) payload.reviewText = params.reviewText.trim();
+  if (params.reviewText !== undefined) {
+    payload.reviewText = params.reviewText.trim();
+    payload.text = params.reviewText.trim();
+  }
   if (params.rating !== undefined) payload.rating = params.rating;
   if (params.visibility !== undefined) payload.visibility = params.visibility;
 
+  // 1. Try updating reviews/{reviewId}
+  try {
+    const reviewRef = doc(db, 'reviews', reviewId);
+    const snap = await getDoc(reviewRef);
+    if (snap.exists()) {
+      await updateDoc(reviewRef, payload);
+      return;
+    }
+  } catch (e) {
+    console.warn('updateReview check reviews notice:', e);
+  }
+
+  // 2. Try updating posts/{reviewId} (for legacy reviews)
+  try {
+    const postRef = doc(db, 'posts', reviewId);
+    const snap = await getDoc(postRef);
+    if (snap.exists()) {
+      await updateDoc(postRef, payload);
+      return;
+    }
+  } catch (e) {
+    console.warn('updateReview check posts notice:', e);
+  }
+
+  // 3. Fallback direct update to reviews
+  const reviewRef = doc(db, 'reviews', reviewId);
   await updateDoc(reviewRef, payload);
 }
 
@@ -1235,6 +1263,25 @@ export async function updateReview(
 export async function deleteReview(reviewId: string): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser) throw new Error('You must be signed in to delete your review.');
+
+  try {
+    const reviewRef = doc(db, 'reviews', reviewId);
+    const snap = await getDoc(reviewRef);
+    if (snap.exists()) {
+      await deleteDoc(reviewRef);
+      return;
+    }
+  } catch (e) {}
+
+  try {
+    const postRef = doc(db, 'posts', reviewId);
+    const snap = await getDoc(postRef);
+    if (snap.exists()) {
+      await deleteDoc(postRef);
+      return;
+    }
+  } catch (e) {}
+
   await deleteDoc(doc(db, 'reviews', reviewId));
 }
 

@@ -353,6 +353,10 @@ function App() {
     setEditingPost(activity);
   };
 
+  const handleVisibilityChange = (postId: string, nextVisibility: 'public' | 'private') => {
+    setFeed(prev => prev.map(f => (f.id === postId ? { ...f, visibility: nextVisibility } : f)));
+  };
+
   const handleSaveEdit = async (
     postId: string,
     updatedText: string,
@@ -552,6 +556,7 @@ function App() {
               onDeletePost={handleDeletePost}
               onLikePost={handleLikePost}
               onOpenComments={handleOpenComments}
+              onVisibilityChange={handleVisibilityChange}
               onProfileUpdated={(updated) => {
                 setUser(prev => prev ? {
                   ...prev,
