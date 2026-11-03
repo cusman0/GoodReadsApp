@@ -1613,3 +1613,116 @@ export async function updateUserProfile(params: {
     photoURL: params.photoURL || currentUser.photoURL || '',
   });
 }
+
+// ============================================================================
+// COMMUNITY USERS SEARCH & PUBLIC PROFILES
+// ============================================================================
+
+/**
+ * Searches community users in Firestore users collection by displayName or email
+ */
+export async function searchCommunityUsers(searchTerm: string = ''): Promise<UserProfile[]> {
+  try {
+    const usersCol = collection(db, 'users');
+    const snap = await getDocs(usersCol);
+    const term = searchTerm.trim().toLowerCase();
+
+    const users: UserProfile[] = [];
+    snap.forEach(d => {
+      const data = d.data();
+      if (data.disabled) return;
+      const name = data.displayName || data.name || 'Reader';
+      const email = data.email || '';
+      if (!term || name.toLowerCase().includes(term) || email.toLowerCase().includes(term)) {
+        users.push({
+          id: d.id,
+          name,
+          email,
+          avatar:
+            data.photoURL ||
+            data.avatar ||
+            `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=00635D&color=fff`,
+          booksReadCount: data.booksReadCount || 0,
+          wantToReadCount: data.wantToReadCount || 0,
+          currentlyReadingCount: data.currentlyReadingCount || 0,
+          readingChallengeGoal: data.readingChallengeGoal || 12,
+          readingChallengeProgress: data.readingChallengeProgress || data.booksReadCount || 0,
+        });
+      }
+    });
+
+    users.sort((a, b) => (b.booksReadCount || 0) - (a.booksReadCount || 0));
+    return users;
+  } catch (err) {
+    console.warn('searchCommunityUsers error:', err);
+    return [];
+  }
+}
+
+/**
+ * Subscribes to public reviews of another community user
+ */
+export function subscribeToOtherUserPublicReviews(
+  targetUserId: string,
+  onUpdate: (reviews: Review[]) => void
+): () => void {
+  const reviewsCol = collection(db, 'reviews');
+  const q = query(
+    reviewsCol,
+    where('ownerId', '==', targetUserId),
+    where('visibility', '==', 'public')
+  );
+
+  return onSnapshot(
+    q,
+    async snapshot => {
+      const profile = await getUserProfileDoc(targetUserId);
+      const currentUid = auth.currentUser?.uid;
+      const items: Review[] = [];
+      for (const d of snapshot.docs) {
+        const data = d.data();
+        let likesCount = 0;
+        let isLiked = false;
+        let commentsCount = 0;
+        try {
+          const likesSnap = await getDocs(collection(db, 'reviews', d.id, 'likes'));
+          likesCount = likesSnap.size;
+          if (currentUid) isLiked = likesSnap.docs.some(ld => ld.id === currentUid);
+        } catch (e) {}
+        try {
+          const commentsSnap = await getDocs(collection(db, 'reviews', d.id, 'comments'));
+          commentsCount = commentsSnap.size;
+        } catch (e) {}
+
+        items.push({
+          id: d.id,
+          ownerId: data.ownerId,
+          bookId: data.bookId,
+          bookTitle: data.bookTitle,
+          bookAuthor: data.bookAuthor,
+          bookCoverUrl: data.bookCoverUrl,
+          rating: data.rating,
+          reviewText: data.reviewText,
+          visibility: 'public',
+          activityType: data.activityType || 'reviewed',
+          createdAt: data.createdAt,
+          userName: profile.displayName || 'Reader',
+          userAvatar:
+            profile.photoURL ||
+            `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.displayName || 'Reader')}&background=00635D&color=fff`,
+          likesCount,
+          commentsCount,
+          likes: likesCount,
+          isLiked,
+          date: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString() : 'Recently',
+        });
+      }
+      items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      onUpdate(items);
+    },
+    err => {
+      console.warn('subscribeToOtherUserPublicReviews notice:', err);
+      onUpdate([]);
+    }
+  );
+}

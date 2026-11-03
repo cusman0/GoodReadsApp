@@ -26,6 +26,7 @@ interface HomeScreenProps {
   onDeletePost?: (postId: string) => void;
   onLikePost?: (postId: string, currentlyLiked: boolean) => void;
   onOpenComments?: (postId: string, bookTitle: string) => void;
+  onSelectUser?: (user: UserProfile) => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -39,6 +40,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDeletePost,
   onLikePost,
   onOpenComments,
+  onSelectUser,
 }) => {
   const currentlyReading = books.filter(b => b.userShelf === 'currently-reading');
   const trendingBooks = books.slice(0, 6);
@@ -433,7 +435,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         {feed.map(item => (
           <View key={item.id} style={styles.feedCard}>
             {/* Feed user info */}
-            <View style={styles.feedUserRow}>
+            <TouchableOpacity
+              style={styles.feedUserRow}
+              onPress={() =>
+                onSelectUser &&
+                onSelectUser({
+                  id: item.userId,
+                  name: item.userName,
+                  avatar: item.userAvatar,
+                  email: '',
+                })
+              }
+              activeOpacity={0.7}
+            >
               <Image source={{ uri: item.userAvatar }} style={styles.feedUserAvatar} />
               <View style={styles.feedUserInfo}>
                 <Text style={styles.feedUserName}>
@@ -457,7 +471,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   </View>
                 </View>
               </View>
-            </View>
+            </TouchableOpacity>
 
             {/* Book snippet */}
             <TouchableOpacity

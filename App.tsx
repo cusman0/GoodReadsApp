@@ -19,6 +19,7 @@ import { GoodreadsHeader } from './src/components/GoodreadsHeader';
 import { AIChatModal } from './src/components/AIChatModal';
 import { AuthModal } from './src/components/AuthModal';
 import { BookDetailModal } from './src/components/BookDetailModal';
+import { ViewUserProfileModal } from './src/components/ViewUserProfileModal';
 import { EditReviewModal } from './src/components/EditReviewModal';
 import { CommentsModal } from './src/components/CommentsModal';
 import { Icon } from './src/components/Icon';
@@ -61,6 +62,7 @@ function App() {
   >('home');
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
+  const [selectedCommunityUser, setSelectedCommunityUser] = useState<UserProfile | null>(null);
   const [authModalVisible, setAuthModalVisible] = useState(false);
   const [aiChatVisible, setAiChatVisible] = useState(false);
   const [editingPost, setEditingPost] = useState<FeedActivity | null>(null);
@@ -512,6 +514,7 @@ function App() {
               onDeletePost={handleDeletePost}
               onLikePost={handleLikePost}
               onOpenComments={handleOpenComments}
+              onSelectUser={setSelectedCommunityUser}
             />
           )}
 
@@ -530,6 +533,7 @@ function App() {
               books={books}
               onSelectBook={setSelectedBook}
               onShelfChange={handleShelfChange}
+              onSelectUser={setSelectedCommunityUser}
             />
           )}
 

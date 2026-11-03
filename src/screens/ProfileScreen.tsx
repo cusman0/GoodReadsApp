@@ -252,6 +252,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               <Text style={styles.googleBadgeText}>G Signed in with Google</Text>
             </View>
           )}
+          <TouchableOpacity
+            style={styles.editProfileBtn}
+            onPress={() => setEditProfileModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Icon name="edit" size={13} color="#00635D" />
+            <Text style={styles.editProfileBtnText}>Edit Profile</Text>
+          </TouchableOpacity>
         </View>
       </View>
 

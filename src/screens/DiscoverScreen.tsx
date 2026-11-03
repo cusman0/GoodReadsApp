@@ -10,7 +10,8 @@ import {
   Image,
   Dimensions,
 } from 'react-native';
-import { Book } from '../types';
+import { Book, UserProfile } from '../types';
+import { searchCommunityUsers } from '../firebase';
 import { Icon } from '../components/Icon';
 import {
   DISCOVER_CATEGORIES,
@@ -23,6 +24,7 @@ import {
 interface DiscoverScreenProps {
   books: Book[];
   onSelectBook: (book: Book) => void;
+  onSelectUser?: (user: UserProfile) => void;
   onShelfChange: (
     bookId: string,
     shelf: 'want-to-read' | 'currently-reading' | 'read' | null,
@@ -37,6 +39,7 @@ const CARD_WIDTH = (width - 48) / 2; // 2-column grid
 export const DiscoverScreen: React.FC<DiscoverScreenProps> = ({
   books,
   onSelectBook,
+  onSelectUser,
 }) => {
   const [query, setQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>(DISCOVER_CATEGORIES[0]); // Default: Fantasy
@@ -51,6 +54,33 @@ export const DiscoverScreen: React.FC<DiscoverScreenProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const debounceTimerRef = useRef<any>(null);
+
+  // Community Readers search state
+  const [activeMode, setActiveMode] = useState<'books' | 'readers'>('books');
+  const [readerQuery, setReaderQuery] = useState('');
+  const [readersList, setReadersList] = useState<UserProfile[]>([]);
+  const [readersLoading, setReadersLoading] = useState(false);
+
+  const loadReaders = useCallback(async (q: string) => {
+    setReadersLoading(true);
+    try {
+      const results = await searchCommunityUsers(q);
+      setReadersList(results);
+    } catch (e) {
+      console.warn('loadReaders error:', e);
+    } finally {
+      setReadersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeMode === 'readers') {
+      const timer = setTimeout(() => {
+        loadReaders(readerQuery);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [activeMode, readerQuery, loadReaders]);
 
   // Synchronize book items with any user bookshelf / rating updates from App state
   const syncWithUserShelves = useCallback(
@@ -237,7 +267,112 @@ export const DiscoverScreen: React.FC<DiscoverScreenProps> = ({
 
   return (
     <View style={styles.container}>
-      {/* Search Bar (500 ms debounce) */}
+      {/* Segmented Mode Selector (Books vs Readers) */}
+      <View style={styles.modeToggleRow}>
+        <TouchableOpacity
+          style={[styles.modeTab, activeMode === 'books' && styles.modeTabActive]}
+          onPress={() => setActiveMode('books')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.modeTabText, activeMode === 'books' && styles.modeTabTextActive]}>
+            📚 Books
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeTab, activeMode === 'readers' && styles.modeTabActive]}
+          onPress={() => setActiveMode('readers')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.modeTabText, activeMode === 'readers' && styles.modeTabTextActive]}>
+            👥 Readers
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeMode === 'readers' ? (
+        <View style={styles.readersContainer}>
+          {/* Reader Search Input */}
+          <View style={styles.searchHeader}>
+            <View style={styles.searchInputRow}>
+              <Icon name="search" size={16} color="#888" />
+              <TextInput
+                style={styles.input}
+                placeholder="Search readers by name or email..."
+                placeholderTextColor="#888888"
+                value={readerQuery}
+                onChangeText={setReaderQuery}
+                returnKeyType="search"
+              />
+              {readersLoading && (
+                <ActivityIndicator size="small" color="#00635D" style={{ marginRight: 6 }} />
+              )}
+              {readerQuery.length > 0 && !readersLoading && (
+                <TouchableOpacity onPress={() => setReaderQuery('')} style={styles.clearBtn}>
+                  <Icon name="close" size={14} color="#888" />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* Reader Results List */}
+          {readersLoading ? (
+            <View style={styles.readersLoaderBox}>
+              <ActivityIndicator size="large" color="#00635D" />
+              <Text style={styles.readersLoaderText}>Searching community readers...</Text>
+            </View>
+          ) : readersList.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <View style={styles.emptyIconCircle}>
+                <Icon name="profile" size={32} color="#00635D" />
+              </View>
+              <Text style={styles.emptyTitle}>No readers found</Text>
+              <Text style={styles.emptySubtitle}>
+                {readerQuery
+                  ? `No readers match "${readerQuery}". Try another name.`
+                  : 'No community members registered yet.'}
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={readersList}
+              keyExtractor={item => item.id}
+              contentContainerStyle={styles.readersListContent}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.readerCard}
+                  onPress={() => onSelectUser && onSelectUser(item)}
+                  activeOpacity={0.8}
+                >
+                  {item.avatar ? (
+                    <Image source={{ uri: item.avatar }} style={styles.readerAvatar} />
+                  ) : (
+                    <View style={styles.readerAvatarFallback}>
+                      <Text style={styles.readerAvatarFallbackText}>
+                        {item.name.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.readerMeta}>
+                    <Text style={styles.readerName} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <View style={styles.readerStatsRow}>
+                      <Text style={styles.readerStatText}>
+                        📚 {item.booksReadCount || 0} books read
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.viewProfileBtn}>
+                    <Text style={styles.viewProfileBtnText}>View Profile</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+            />
+          )}
+        </View>
+      ) : (
+        <>
+          {/* Search Bar (500 ms debounce) */}
       <View style={styles.searchHeader}>
         <View style={styles.searchInputRow}>
           <Icon name="search" size={16} color="#888" />
@@ -333,6 +468,8 @@ export const DiscoverScreen: React.FC<DiscoverScreenProps> = ({
           }
         />
       )}
+        </>
+      )}
     </View>
   );
 };
@@ -341,6 +478,116 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F4F1EA',
+  },
+  modeToggleRow: {
+    flexDirection: 'row',
+    backgroundColor: '#E8E0D6',
+    borderRadius: 10,
+    padding: 3,
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  modeTab: {
+    flex: 1,
+    paddingVertical: 7,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  modeTabActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  modeTabText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#767676',
+  },
+  modeTabTextActive: {
+    color: '#00635D',
+    fontWeight: '700',
+  },
+  readersContainer: {
+    flex: 1,
+  },
+  readersLoaderBox: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  readersLoaderText: {
+    marginTop: 10,
+    fontSize: 13,
+    color: '#767676',
+  },
+  readersListContent: {
+    padding: 16,
+    paddingBottom: 32,
+  },
+  readerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E8E0D6',
+  },
+  readerAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#E8E0D6',
+    marginRight: 12,
+  },
+  readerAvatarFallback: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#00635D',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  readerAvatarFallbackText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  readerMeta: {
+    flex: 1,
+  },
+  readerName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#382110',
+    marginBottom: 2,
+  },
+  readerStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  readerStatText: {
+    fontSize: 12,
+    color: '#767676',
+  },
+  viewProfileBtn: {
+    backgroundColor: '#E8F3F1',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#B2D8D5',
+  },
+  viewProfileBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#00635D',
   },
   searchHeader: {
     paddingHorizontal: 16,
