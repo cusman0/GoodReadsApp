@@ -23,9 +23,13 @@ import {
   serverTimestamp,
   updateDoc,
   deleteDoc,
+  increment,
+  arrayUnion,
+  arrayRemove,
+  addDoc,
 } from 'firebase/firestore';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import type { UserProfile } from './types';
+import type { UserProfile, Comment } from './types';
 
 export const firebaseConfig = {
   apiKey: "AIzaSyDDcjNMSsDRsa2xrhePfC_xAk-Pcf-9PG8",
@@ -648,3 +652,91 @@ export async function deleteReviewPost(postId: string): Promise<void> {
   await deleteDoc(postDocRef);
 }
 
+/**
+ * Toggle like on a post for the current user.
+ * Uses arrayUnion/arrayRemove on likedBy field + increment on likeCount.
+ */
+export async function togglePostLike(
+  postId: string,
+  currentlyLiked: boolean
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('You must be signed in to like a review.');
+  }
+  const postRef = doc(db, 'posts', postId);
+  if (currentlyLiked) {
+    await updateDoc(postRef, {
+      likeCount: increment(-1),
+      likedBy: arrayRemove(currentUser.uid),
+    });
+  } else {
+    await updateDoc(postRef, {
+      likeCount: increment(1),
+      likedBy: arrayUnion(currentUser.uid),
+    });
+  }
+}
+
+/**
+ * Subscribe to real-time comments for a post (ordered by createdAt asc).
+ */
+export function subscribeToComments(
+  postId: string,
+  onUpdate: (comments: Comment[]) => void
+): () => void {
+  const commentsRef = collection(db, 'posts', postId, 'comments');
+  const q = query(commentsRef, orderBy('createdAt', 'asc'));
+  return onSnapshot(
+    q,
+    snap => {
+      const comments: Comment[] = snap.docs.map(d => ({
+        id: d.id,
+        postId,
+        authorId: d.data().authorId,
+        authorName: d.data().authorName,
+        authorPhotoUrl: d.data().authorPhotoUrl || '',
+        text: d.data().text,
+        createdAt: d.data().createdAt?.toDate
+          ? d.data().createdAt.toDate().toLocaleString()
+          : 'Just now',
+      }));
+      onUpdate(comments);
+    },
+    err => console.warn('subscribeToComments error:', err)
+  );
+}
+
+/**
+ * Add a comment to a post.
+ */
+export async function addComment(postId: string, text: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('You must be signed in to comment.');
+  }
+  const commentsRef = collection(db, 'posts', postId, 'comments');
+  await addDoc(commentsRef, {
+    authorId: currentUser.uid,
+    authorName: currentUser.displayName || 'Reader',
+    authorPhotoUrl: currentUser.photoURL || '',
+    text: text.trim(),
+    createdAt: serverTimestamp(),
+  });
+  await updateDoc(doc(db, 'posts', postId), { commentsCount: increment(1) });
+}
+
+/**
+ * Delete own comment from a post (decrements commentsCount on parent).
+ */
+export async function deleteComment(
+  postId: string,
+  commentId: string
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('You must be signed in to delete a comment.');
+  }
+  await deleteDoc(doc(db, 'posts', postId, 'comments', commentId));
+  await updateDoc(doc(db, 'posts', postId), { commentsCount: increment(-1) });
+}

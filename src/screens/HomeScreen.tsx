@@ -24,6 +24,8 @@ interface HomeScreenProps {
   onOpenAuth: () => void;
   onEditPost?: (activity: FeedActivity) => void;
   onDeletePost?: (postId: string) => void;
+  onLikePost?: (postId: string, currentlyLiked: boolean) => void;
+  onOpenComments?: (postId: string, bookTitle: string) => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -35,6 +37,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenAuth,
   onEditPost,
   onDeletePost,
+  onLikePost,
+  onOpenComments,
 }) => {
   const currentlyReading = books.filter(b => b.userShelf === 'currently-reading');
   const trendingBooks = books.slice(0, 6);

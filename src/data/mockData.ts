@@ -152,49 +152,7 @@ export const BOOKS_DATA: Book[] = [
   },
 ];
 
-export const FEED_ACTIVITIES: FeedActivity[] = [
-  {
-    id: 'act-1',
-    userId: 'u-101',
-    userName: 'Elena Rostova',
-    userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80',
-    activityType: 'reviewed',
-    book: BOOKS_DATA[0],
-    rating: 5,
-    reviewText:
-      'This was an absolute masterpiece! The exploration of creative partnership, gaming design culture in the 90s, and unspoken love between Sam and Sadie broke my heart and stitched it back together. Highly recommend to anyone who loves deep character studies.',
-    timestamp: '2 hours ago',
-    likes: 47,
-    commentsCount: 12,
-  },
-  {
-    id: 'act-2',
-    userId: 'u-102',
-    userName: 'Marcus Chen',
-    userAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&q=80',
-    activityType: 'reading',
-    book: BOOKS_DATA[2],
-    rating: 5,
-    reviewText: 'Just started chapter 12. Rocky is already one of my favorite sci-fi characters of all time! Amaze! Amaze! Amaze!',
-    timestamp: '5 hours ago',
-    likes: 83,
-    commentsCount: 19,
-  },
-  {
-    id: 'act-3',
-    userId: 'u-103',
-    userName: 'Sophia Martinez',
-    userAvatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=120&q=80',
-    activityType: 'finished',
-    book: BOOKS_DATA[7],
-    rating: 5,
-    reviewText:
-      'Elizabeth Zott and Six-Thirty the dog will forever hold a special place on my bookshelf. Laugh-out-loud funny yet poignant and inspiring.',
-    timestamp: '1 day ago',
-    likes: 124,
-    commentsCount: 28,
-  },
-];
+export const FEED_ACTIVITIES: FeedActivity[] = [];
 
 export const GENRES = [
   'Fiction',

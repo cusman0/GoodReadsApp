@@ -24,6 +24,8 @@ interface ProfileScreenProps {
   onUpdateGoal?: (newGoal: number) => void;
   onEditPost?: (activity: FeedActivity) => void;
   onDeletePost?: (postId: string) => void;
+  onLikePost?: (postId: string, currentlyLiked: boolean) => void;
+  onOpenComments?: (postId: string, bookTitle: string) => void;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({

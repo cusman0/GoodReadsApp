@@ -20,6 +20,7 @@ import { AIChatModal } from './src/components/AIChatModal';
 import { AuthModal } from './src/components/AuthModal';
 import { BookDetailModal } from './src/components/BookDetailModal';
 import { EditReviewModal } from './src/components/EditReviewModal';
+import { CommentsModal } from './src/components/CommentsModal';
 import { Icon } from './src/components/Icon';
 import {
   subscribeToAuthState,
@@ -29,6 +30,8 @@ import {
   updateUserReadingProgress,
   updateReviewPost,
   deleteReviewPost,
+  togglePostLike,
+  auth,
 } from './src/firebase';
 
 import { HomeScreen } from './src/screens/HomeScreen';
@@ -47,6 +50,8 @@ function App() {
   const [authModalVisible, setAuthModalVisible] = useState(false);
   const [aiChatVisible, setAiChatVisible] = useState(false);
   const [editingPost, setEditingPost] = useState<FeedActivity | null>(null);
+  const [commentPostId, setCommentPostId] = useState<string | null>(null);
+  const [commentPostTitle, setCommentPostTitle] = useState<string>('');
 
   // Subscribe to Firebase Auth state and real-time community posts
   useEffect(() => {
@@ -84,6 +89,9 @@ function App() {
               timestamp: p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString() : 'Just now',
               likes: p.likeCount || 0,
               commentsCount: p.commentsCount || 0,
+              isLiked: Array.isArray(p.likedBy) && auth.currentUser
+                ? p.likedBy.includes(auth.currentUser.uid)
+                : false,
             }));
             setFeed(prev => {
               const liveIds = new Set(liveActivities.map(l => l.id));
@@ -250,6 +258,43 @@ function App() {
     );
   };
 
+  const handleLikePost = async (postId: string, currentlyLiked: boolean) => {
+    if (!user) {
+      setAuthModalVisible(true);
+      return;
+    }
+    // Optimistic update
+    setFeed(prev =>
+      prev.map(f =>
+        f.id === postId
+          ? { ...f, likes: currentlyLiked ? f.likes - 1 : f.likes + 1, isLiked: !currentlyLiked }
+          : f
+      )
+    );
+    try {
+      await togglePostLike(postId, currentlyLiked);
+    } catch (err: any) {
+      // Revert on error
+      setFeed(prev =>
+        prev.map(f =>
+          f.id === postId
+            ? { ...f, likes: currentlyLiked ? f.likes + 1 : f.likes - 1, isLiked: currentlyLiked }
+            : f
+        )
+      );
+      Alert.alert('Error', err.message || 'Could not update like.');
+    }
+  };
+
+  const handleOpenComments = (postId: string, bookTitle: string) => {
+    if (!user) {
+      setAuthModalVisible(true);
+      return;
+    }
+    setCommentPostId(postId);
+    setCommentPostTitle(bookTitle);
+  };
+
   const handleLoginSuccess = (newUser: UserProfile) => {
     setUser(newUser);
     Alert.alert(
@@ -292,6 +337,8 @@ function App() {
               onOpenAuth={() => setAuthModalVisible(true)}
               onEditPost={handleEditPost}
               onDeletePost={handleDeletePost}
+              onLikePost={handleLikePost}
+              onOpenComments={handleOpenComments}
             />
           )}
 
@@ -427,6 +474,15 @@ function App() {
           activity={editingPost}
           onClose={() => setEditingPost(null)}
           onSave={handleSaveEdit}
+        />
+
+        {/* Comments Modal */}
+        <CommentsModal
+          visible={Boolean(commentPostId)}
+          postId={commentPostId || ''}
+          postTitle={commentPostTitle}
+          onClose={() => { setCommentPostId(null); setCommentPostTitle(''); }}
+          user={user}
         />
 
         {/* Book Details Modal */}
