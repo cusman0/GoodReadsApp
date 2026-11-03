@@ -12,7 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Book, UserProfile, FeedActivity } from '../types';
-import { createReviewPost } from '../firebase';
+import { createReviewPost, createReview } from '../firebase';
 import { assistReviewWriting, getBookConsensusSummary } from '../services/aiService';
 import { StarRating } from './StarRating';
 import { Icon } from './Icon';
@@ -61,6 +61,7 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
     'want-to-read' | 'currently-reading' | 'read' | null
   >(book?.userShelf || null);
   const [userRating, setUserRating] = useState(book?.userRating || 0);
+  const [visibility, setVisibility] = useState<'public' | 'private'>('private'); // Default: Only me
   const [pagesRead, setPagesRead] = useState(
     book?.progressPages ? String(book.progressPages) : '0'
   );
@@ -159,6 +160,7 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
       },
       rating: finalRating,
       reviewText: postText,
+      visibility,
       timestamp: 'Just now',
       likes: 0,
       commentsCount: 0,
@@ -176,13 +178,11 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
 
     setSubmittingReview(true);
     try {
-      await createReviewPost({
-        bookId: book.id,
-        bookTitle: book.title,
-        bookAuthor: book.author,
-        bookCoverUrl: book.coverUrl,
+      await createReview({
+        book,
         rating: finalRating,
-        text: postText,
+        reviewText: postText,
+        visibility,
         activityType: 'reviewed',
       });
 
@@ -292,6 +292,19 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
                   {book.ratingCount.toLocaleString()} ratings •{' '}
                   {book.reviewCount.toLocaleString()} reviews
                 </Text>
+
+                {/* Write a Review Button (Feature 4) */}
+                <TouchableOpacity
+                  style={styles.writeReviewShortcutBtn}
+                  onPress={() => {
+                    // Pre-fill / open write review section
+                    Alert.alert('Write a Review', 'Scroll down to share your thoughts and rating for this book!');
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Icon name="edit" size={13} color="#00635D" />
+                  <Text style={styles.writeReviewShortcutBtnText}>Write a Review</Text>
+                </TouchableOpacity>
 
                 {/* Shelf Button */}
                 <TouchableOpacity
@@ -678,6 +691,72 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
 };
 
 const styles = StyleSheet.create({
+  writeReviewShortcutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#E8F3F1',
+    borderWidth: 1,
+    borderColor: '#00635D',
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    justifyContent: 'center',
+  },
+  writeReviewShortcutBtnText: {
+    color: '#00635D',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  visibilityCard: {
+    backgroundColor: '#F5F2EB',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E2DED5',
+    gap: 6,
+  },
+  visibilityLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#382110',
+  },
+  visibilityRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  visibilityBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D5CEC6',
+  },
+  visibilityBtnActive: {
+    backgroundColor: '#E8F3F1',
+    borderColor: '#00635D',
+  },
+  visibilityBtnText: {
+    fontSize: 12,
+    color: '#767676',
+    fontWeight: '600',
+  },
+  visibilityBtnTextActive: {
+    color: '#00635D',
+    fontWeight: '700',
+  },
+  visibilityHint: {
+    fontSize: 11,
+    color: '#8D8070',
+  },
   bookReviewItem: {
     backgroundColor: '#F7F5F0',
     borderRadius: 8,

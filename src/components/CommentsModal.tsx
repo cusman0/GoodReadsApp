@@ -20,6 +20,7 @@ interface CommentsModalProps {
   visible: boolean;
   postId: string;
   postTitle: string;
+  postOwnerId?: string;
   onClose: () => void;
   user: UserProfile | null;
 }
@@ -28,6 +29,7 @@ export const CommentsModal: React.FC<CommentsModalProps> = ({
   visible,
   postId,
   postTitle,
+  postOwnerId,
   onClose,
   user,
 }) => {
@@ -88,7 +90,9 @@ export const CommentsModal: React.FC<CommentsModalProps> = ({
   };
 
   const renderComment = ({ item }: { item: Comment }) => {
-    const isOwn = user && item.authorId === user.id;
+    const isOwn = user && (item.userId === user.id || item.authorId === user.id);
+    const canDelete = isOwn || (user && postOwnerId && user.id === postOwnerId);
+    const authorDisplayName = item.authorName || 'Reader';
     return (
       <View style={styles.commentRow}>
         {item.authorPhotoUrl ? (
@@ -96,14 +100,14 @@ export const CommentsModal: React.FC<CommentsModalProps> = ({
         ) : (
           <View style={[styles.avatar, styles.avatarFallback]}>
             <Text style={styles.avatarFallbackText}>
-              {item.authorName.charAt(0).toUpperCase()}
+              {authorDisplayName.charAt(0).toUpperCase()}
             </Text>
           </View>
         )}
         <View style={styles.commentBubble}>
           <View style={styles.commentHeader}>
-            <Text style={styles.commentAuthor}>{item.authorName}</Text>
-            {isOwn && (
+            <Text style={styles.commentAuthor}>{authorDisplayName}</Text>
+            {canDelete && (
               <TouchableOpacity
                 onPress={() => handleDelete(item)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}

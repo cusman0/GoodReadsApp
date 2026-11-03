@@ -22,7 +22,7 @@ interface EditReviewModalProps {
   visible: boolean;
   activity: FeedActivity | null;
   onClose: () => void;
-  onSave: (postId: string, updatedText: string, updatedRating?: number) => Promise<void>;
+  onSave: (postId: string, updatedText: string, updatedRating?: number, visibility?: 'public' | 'private') => Promise<void>;
 }
 
 export const EditReviewModal: React.FC<EditReviewModalProps> = ({
@@ -33,6 +33,7 @@ export const EditReviewModal: React.FC<EditReviewModalProps> = ({
 }) => {
   const [text, setText] = useState('');
   const [rating, setRating] = useState(5);
+  const [visibility, setVisibility] = useState<'public' | 'private'>('private');
   const [saving, setSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
 
@@ -40,6 +41,7 @@ export const EditReviewModal: React.FC<EditReviewModalProps> = ({
     if (activity) {
       setText(activity.reviewText || '');
       setRating(activity.rating || 5);
+      setVisibility(activity.visibility || 'private');
     }
   }, [activity?.id]);
 
@@ -68,7 +70,7 @@ export const EditReviewModal: React.FC<EditReviewModalProps> = ({
     }
     setSaving(true);
     try {
-      await onSave(activity.id, text.trim(), rating);
+      await onSave(activity.id, text.trim(), rating, visibility);
       onClose();
     } catch (err: any) {
       Alert.alert('Save Error', err.message || 'Could not update review.');
@@ -194,6 +196,48 @@ export const EditReviewModal: React.FC<EditReviewModalProps> = ({
 };
 
 const styles = StyleSheet.create({
+  visibilityCard: {
+    backgroundColor: '#F5F2EB',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2DED5',
+    gap: 8,
+  },
+  visibilityRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  visibilityBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D5CEC6',
+  },
+  visibilityBtnActive: {
+    backgroundColor: '#E8F3F1',
+    borderColor: '#00635D',
+  },
+  visibilityBtnText: {
+    fontSize: 13,
+    color: '#767676',
+    fontWeight: '600',
+  },
+  visibilityBtnTextActive: {
+    color: '#00635D',
+    fontWeight: '700',
+  },
+  visibilitySubtext: {
+    fontSize: 11,
+    color: '#8D8070',
+    lineHeight: 15,
+  },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

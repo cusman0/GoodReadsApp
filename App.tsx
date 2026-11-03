@@ -30,6 +30,9 @@ import {
   updateUserReadingProgress,
   updateReviewPost,
   deleteReviewPost,
+  deleteReview,
+  updateReview,
+  subscribeToPublicReviews,
   togglePostLike,
   auth,
   subscribeToNotifications,
@@ -74,36 +77,71 @@ function App() {
         unsubscribeFeed = null;
       }
       try {
-        unsubscribeFeed = subscribeToCommunityPosts((posts: any[]) => {
-          const liveActivities: FeedActivity[] = (posts || []).map((p: any) => ({
-            id: p.id,
-            userId: p.authorId,
-            userName: p.authorName,
-            userAvatar: p.authorPhotoUrl,
-            activityType: p.activityType || 'reviewed',
-            book: {
-              id: p.bookId,
-              title: p.bookTitle,
-              author: p.bookAuthor,
-              coverUrl: p.bookCoverUrl,
-              rating: p.rating || 5,
-              ratingCount: 1,
-              reviewCount: 1,
-              pages: 320,
-              publishedYear: 2024,
-              genres: ['Fiction'],
-              description: p.text,
-            },
-            rating: p.rating,
-            reviewText: p.text,
-            timestamp: p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString() : 'Just now',
-            likes: p.likeCount || 0,
-            commentsCount: p.commentsCount || 0,
-            isLiked: Array.isArray(p.likedBy) && auth.currentUser
-              ? p.likedBy.includes(auth.currentUser.uid)
-              : false,
-          }));
-          setFeed(liveActivities);
+        unsubscribeFeed = subscribeToPublicReviews((reviews: any[]) => {
+          if (reviews && reviews.length > 0) {
+            const liveActivities: FeedActivity[] = reviews.map((p: any) => ({
+              id: p.id,
+              userId: p.ownerId || p.userId,
+              userName: p.userName || 'Reader',
+              userAvatar: p.userAvatar || '',
+              activityType: p.activityType || 'reviewed',
+              book: {
+                id: p.bookId,
+                title: p.bookTitle || 'Untitled Book',
+                author: p.bookAuthor || 'Unknown Author',
+                coverUrl: p.bookCoverUrl || '',
+                rating: p.rating || 5,
+                ratingCount: 1,
+                reviewCount: 1,
+                pages: 320,
+                publishedYear: 2024,
+                genres: ['Fiction'],
+                description: p.reviewText || '',
+              },
+              rating: p.rating,
+              reviewText: p.reviewText || '',
+              visibility: p.visibility || 'public',
+              timestamp: p.date || (p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString() : 'Just now'),
+              likes: p.likesCount !== undefined ? p.likesCount : (p.likes || 0),
+              commentsCount: p.commentsCount || 0,
+              isLiked: Boolean(p.isLiked),
+            }));
+            setFeed(liveActivities);
+          } else {
+            // Fallback to legacy community posts
+            subscribeToCommunityPosts((posts: any[]) => {
+              const liveActivities: FeedActivity[] = (posts || []).map((p: any) => ({
+                id: p.id,
+                userId: p.authorId,
+                userName: p.authorName,
+                userAvatar: p.authorPhotoUrl,
+                activityType: p.activityType || 'reviewed',
+                book: {
+                  id: p.bookId,
+                  title: p.bookTitle,
+                  author: p.bookAuthor,
+                  coverUrl: p.bookCoverUrl,
+                  rating: p.rating || 5,
+                  ratingCount: 1,
+                  reviewCount: 1,
+                  pages: 320,
+                  publishedYear: 2024,
+                  genres: ['Fiction'],
+                  description: p.text,
+                },
+                rating: p.rating,
+                reviewText: p.text,
+                visibility: 'public',
+                timestamp: p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString() : 'Just now',
+                likes: p.likeCount || 0,
+                commentsCount: p.commentsCount || 0,
+                isLiked: Array.isArray(p.likedBy) && auth.currentUser
+                  ? p.likedBy.includes(auth.currentUser.uid)
+                  : false,
+              }));
+              setFeed(liveActivities);
+            });
+          }
         });
       } catch (err) {
         console.warn('Could not setup feed subscription:', err);
@@ -318,9 +356,18 @@ function App() {
   const handleSaveEdit = async (
     postId: string,
     updatedText: string,
-    updatedRating?: number
+    updatedRating?: number,
+    visibility?: 'public' | 'private'
   ) => {
-    await updateReviewPost(postId, updatedText, updatedRating);
+    try {
+      await updateReview(postId, {
+        reviewText: updatedText,
+        rating: updatedRating,
+        visibility,
+      });
+    } catch (e) {
+      await updateReviewPost(postId, updatedText, updatedRating);
+    }
     setFeed(prev =>
       prev.map(f =>
         f.id === postId
@@ -328,6 +375,7 @@ function App() {
               ...f,
               reviewText: updatedText,
               rating: updatedRating !== undefined ? updatedRating : f.rating,
+              visibility: visibility || f.visibility,
             }
           : f
       )
@@ -346,7 +394,11 @@ function App() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteReviewPost(postId);
+              try {
+                await deleteReview(postId);
+              } catch (e) {
+                await deleteReviewPost(postId);
+              }
               setFeed(prev => prev.filter(f => f.id !== postId));
               Alert.alert('Deleted', 'Your review has been removed.');
             } catch (err: any) {
@@ -500,6 +552,12 @@ function App() {
               onDeletePost={handleDeletePost}
               onLikePost={handleLikePost}
               onOpenComments={handleOpenComments}
+              onProfileUpdated={(updated) => {
+                setUser(prev => prev ? {
+                  ...prev,
+                  ...updated,
+                } : null);
+              }}
             />
           )}
         </View>
@@ -641,6 +699,7 @@ function App() {
           visible={Boolean(commentPostId)}
           postId={commentPostId || ''}
           postTitle={commentPostTitle}
+          postOwnerId={feed.find(f => f.id === commentPostId)?.userId}
           onClose={() => { setCommentPostId(null); setCommentPostTitle(''); }}
           user={user}
         />

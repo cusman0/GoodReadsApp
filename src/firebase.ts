@@ -30,8 +30,9 @@ import {
   where,
   getDocs,
 } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import type { UserProfile, Comment, AppNotification, Book } from './types';
+import type { UserProfile, Comment, AppNotification, Book, Review } from './types';
 
 export const firebaseConfig = {
   apiKey: "AIzaSyDDcjNMSsDRsa2xrhePfC_xAk-Pcf-9PG8",
@@ -60,6 +61,7 @@ try {
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
 
 // AI Gateway & Environment Configuration
 declare const __DEV__: boolean;
@@ -667,6 +669,42 @@ export async function togglePostLike(
   if (!currentUser) {
     throw new Error('You must be signed in to like a review.');
   }
+
+  try {
+    const reviewRef = doc(db, 'reviews', postId);
+    const reviewSnap = await getDoc(reviewRef);
+    if (reviewSnap.exists()) {
+      const reviewData = reviewSnap.data();
+      if (reviewData.visibility !== 'public' && reviewData.ownerId !== currentUser.uid) {
+        throw new Error('Only public reviews can be liked.');
+      }
+      await toggleReviewLike(postId, currentlyLiked);
+      if (!currentlyLiked && reviewData.ownerId && reviewData.ownerId !== currentUser.uid) {
+        try {
+          await addDoc(collection(db, 'notifications'), {
+            recipientId: reviewData.ownerId,
+            senderId: currentUser.uid,
+            senderName: currentUser.displayName || 'A Reader',
+            senderAvatar: currentUser.photoURL || '',
+            type: 'like',
+            postId,
+            bookTitle: reviewData.bookTitle || 'your review',
+            bookCoverUrl: reviewData.bookCoverUrl || '',
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        } catch (notifErr) {
+          console.warn('Could not create like notification:', notifErr);
+        }
+      }
+      return;
+    }
+  } catch (err: any) {
+    if (err.message?.includes('public') || err.message?.includes('signed in')) {
+      throw err;
+    }
+  }
+
   const postRef = doc(db, 'posts', postId);
   if (currentlyLiked) {
     await updateDoc(postRef, {
@@ -712,26 +750,89 @@ export function subscribeToComments(
   postId: string,
   onUpdate: (comments: Comment[]) => void
 ): () => void {
-  const commentsRef = collection(db, 'posts', postId, 'comments');
-  const q = query(commentsRef, orderBy('createdAt', 'asc'));
-  return onSnapshot(
-    q,
-    snap => {
-      const comments: Comment[] = snap.docs.map(d => ({
-        id: d.id,
-        postId,
-        authorId: d.data().authorId,
-        authorName: d.data().authorName,
-        authorPhotoUrl: d.data().authorPhotoUrl || '',
-        text: d.data().text,
-        createdAt: d.data().createdAt?.toDate
-          ? d.data().createdAt.toDate().toLocaleString()
-          : 'Just now',
-      }));
-      onUpdate(comments);
+  // Listen to reviews/{postId}/comments (FEATURE 2: newest first)
+  const reviewCommentsRef = collection(db, 'reviews', postId, 'comments');
+  const qReviews = query(reviewCommentsRef, orderBy('createdAt', 'desc'));
+
+  let unsubPosts: (() => void) | null = null;
+  const unsubReviews = onSnapshot(
+    qReviews,
+    async snap => {
+      if (!snap.empty) {
+        const comments: Comment[] = [];
+        for (const d of snap.docs) {
+          const data = d.data();
+          const profile = await getUserProfileDoc(data.userId);
+          comments.push({
+            id: d.id,
+            postId,
+            userId: data.userId,
+            authorId: data.userId,
+            authorName: profile.displayName || 'Reader',
+            authorPhotoUrl: profile.photoURL || '',
+            text: data.text,
+            createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleString() : 'Just now',
+          });
+        }
+        onUpdate(comments);
+      } else {
+        // Fallback to legacy posts/{postId}/comments if reviews subcollection is empty
+        if (!unsubPosts) {
+          const postsCommentsRef = collection(db, 'posts', postId, 'comments');
+          const qPosts = query(postsCommentsRef, orderBy('createdAt', 'desc'));
+          unsubPosts = onSnapshot(
+            qPosts,
+            snapPosts => {
+              const comments: Comment[] = snapPosts.docs.map(d => ({
+                id: d.id,
+                postId,
+                userId: d.data().authorId || d.data().userId || '',
+                authorId: d.data().authorId || d.data().userId || '',
+                authorName: d.data().authorName || 'Reader',
+                authorPhotoUrl: d.data().authorPhotoUrl || '',
+                text: d.data().text,
+                createdAt: d.data().createdAt?.toDate
+                  ? d.data().createdAt.toDate().toLocaleString()
+                  : 'Just now',
+              }));
+              onUpdate(comments);
+            },
+            () => onUpdate([])
+          );
+        } else {
+          onUpdate([]);
+        }
+      }
     },
-    err => console.warn('subscribeToComments error:', err)
+    err => {
+      console.warn('subscribeToComments review subcollection notice:', err);
+      const postsCommentsRef = collection(db, 'posts', postId, 'comments');
+      unsubPosts = onSnapshot(
+        postsCommentsRef,
+        snapPosts => {
+          const comments: Comment[] = snapPosts.docs.map(d => ({
+            id: d.id,
+            postId,
+            userId: d.data().authorId || d.data().userId || '',
+            authorId: d.data().authorId || d.data().userId || '',
+            authorName: d.data().authorName || 'Reader',
+            authorPhotoUrl: d.data().authorPhotoUrl || '',
+            text: d.data().text,
+            createdAt: d.data().createdAt?.toDate
+              ? d.data().createdAt.toDate().toLocaleString()
+              : 'Just now',
+          }));
+          onUpdate(comments);
+        },
+        () => onUpdate([])
+      );
+    }
   );
+
+  return () => {
+    unsubReviews();
+    if (unsubPosts) unsubPosts();
+  };
 }
 
 /**
@@ -742,12 +843,63 @@ export async function addComment(postId: string, text: string): Promise<void> {
   if (!currentUser) {
     throw new Error('You must be signed in to comment.');
   }
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new Error('Comment cannot be empty.');
+  }
+  if (trimmed.length > 500) {
+    throw new Error('Comment cannot exceed 500 characters.');
+  }
+
+  // Check if target is a review in reviews/{postId}
+  try {
+    const reviewRef = doc(db, 'reviews', postId);
+    const reviewSnap = await getDoc(reviewRef);
+    if (reviewSnap.exists()) {
+      const reviewData = reviewSnap.data();
+      if (reviewData.visibility !== 'public' && reviewData.ownerId !== currentUser.uid) {
+        throw new Error('Comments are only allowed on public reviews.');
+      }
+      await addDoc(collection(db, 'reviews', postId, 'comments'), {
+        userId: currentUser.uid,
+        text: trimmed,
+        createdAt: serverTimestamp(),
+      });
+
+      // Send real-time notification to review owner
+      if (reviewData.ownerId && reviewData.ownerId !== currentUser.uid) {
+        try {
+          await addDoc(collection(db, 'notifications'), {
+            recipientId: reviewData.ownerId,
+            senderId: currentUser.uid,
+            senderName: currentUser.displayName || 'A Reader',
+            senderAvatar: currentUser.photoURL || '',
+            type: 'comment',
+            postId,
+            bookTitle: reviewData.bookTitle || 'your review',
+            bookCoverUrl: reviewData.bookCoverUrl || '',
+            commentText: trimmed,
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        } catch (notifErr) {
+          console.warn('Could not create comment notification:', notifErr);
+        }
+      }
+      return;
+    }
+  } catch (err: any) {
+    if (err.message?.includes('public reviews') || err.message?.includes('signed in')) {
+      throw err;
+    }
+  }
+
   const commentsRef = collection(db, 'posts', postId, 'comments');
   await addDoc(commentsRef, {
     authorId: currentUser.uid,
     authorName: currentUser.displayName || 'Reader',
     authorPhotoUrl: currentUser.photoURL || '',
-    text: text.trim(),
+    text: trimmed,
     createdAt: serverTimestamp(),
   });
   await updateDoc(doc(db, 'posts', postId), { commentsCount: increment(1) });
@@ -946,4 +1098,471 @@ export function subscribeToUserShelvedBooks(
       console.warn('subscribeToUserShelvedBooks notice:', err);
     }
   );
+}
+
+// ============================================================================
+// FEATURE 1 & 2: REVIEWS (PUBLIC / PRIVATE), LIKES & COMMENTS
+// ============================================================================
+
+const userDocsCache = new Map<string, { displayName: string; photoURL: string }>();
+
+/**
+ * Reads user's display name and picture from users/{uid} so updates show everywhere right away.
+ */
+export async function getUserProfileDoc(
+  uid: string
+): Promise<{ displayName: string; photoURL: string }> {
+  if (userDocsCache.has(uid)) return userDocsCache.get(uid)!;
+  try {
+    const userDocRef = doc(db, 'users', uid);
+    const snap = await getDoc(userDocRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      const info = {
+        displayName: data.displayName || 'Reader',
+        photoURL: data.photoURL || '',
+      };
+      userDocsCache.set(uid, info);
+      return info;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return { displayName: 'Reader', photoURL: '' };
+}
+
+/**
+ * Subscribes to real-time updates of users/{uid} for immediate display name/photo updates
+ */
+export function subscribeToUserProfileDoc(
+  uid: string,
+  onUpdate: (user: { displayName: string; photoURL: string }) => void
+): () => void {
+  const userDocRef = doc(db, 'users', uid);
+  return onSnapshot(userDocRef, snap => {
+    if (snap.exists()) {
+      const data = snap.data();
+      const info = {
+        displayName: data.displayName || 'Reader',
+        photoURL: data.photoURL || '',
+      };
+      userDocsCache.set(uid, info);
+      onUpdate(info);
+    }
+  });
+}
+
+/**
+ * FEATURE 1: Creates a review with visibility ('public' | 'private'). Default is 'private'.
+ * FEATURE 4: Saves basic book info to books/{bookId} if it does not exist yet.
+ */
+export async function createReview(params: {
+  book: Book;
+  rating: number;
+  reviewText: string;
+  visibility?: 'public' | 'private';
+  activityType?: 'reviewed' | 'reading' | 'finished' | 'rated';
+}): Promise<string> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('You must be signed in to submit a review.');
+
+  const reviewsCol = collection(db, 'reviews');
+  const newDocRef = doc(reviewsCol);
+
+  const visibility = params.visibility || 'private'; // Default is Only me (private)
+
+  const reviewPayload = {
+    ownerId: currentUser.uid,
+    bookId: params.book.id,
+    bookTitle: params.book.title,
+    bookAuthor: params.book.author,
+    bookCoverUrl: params.book.coverUrl,
+    rating: params.rating,
+    reviewText: params.reviewText.trim(),
+    visibility,
+    activityType: params.activityType || 'reviewed',
+    createdAt: serverTimestamp(),
+  };
+
+  await setDoc(newDocRef, reviewPayload);
+
+  // FEATURE 4: Save book's basic info to books/{bookId} only when reviewed, if not exists yet
+  try {
+    const bookDocRef = doc(db, 'books', params.book.id);
+    const bookSnap = await getDoc(bookDocRef);
+    if (!bookSnap.exists()) {
+      await setDoc(bookDocRef, {
+        title: params.book.title,
+        authors: params.book.authors || [params.book.author],
+        coverUrl: params.book.coverUrl,
+        source: params.book.source || 'openlibrary',
+        createdAt: serverTimestamp(),
+      });
+    }
+  } catch (err) {
+    console.warn('Save book doc notice:', err);
+  }
+
+  return newDocRef.id;
+}
+
+/**
+ * FEATURE 1: Updates owner's review text, rating, or visibility
+ */
+export async function updateReview(
+  reviewId: string,
+  params: {
+    reviewText?: string;
+    rating?: number;
+    visibility?: 'public' | 'private';
+  }
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('You must be signed in to edit your review.');
+
+  const reviewRef = doc(db, 'reviews', reviewId);
+  const payload: any = { updatedAt: serverTimestamp() };
+  if (params.reviewText !== undefined) payload.reviewText = params.reviewText.trim();
+  if (params.rating !== undefined) payload.rating = params.rating;
+  if (params.visibility !== undefined) payload.visibility = params.visibility;
+
+  await updateDoc(reviewRef, payload);
+}
+
+/**
+ * Deletes owner's review
+ */
+export async function deleteReview(reviewId: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('You must be signed in to delete your review.');
+  await deleteDoc(doc(db, 'reviews', reviewId));
+}
+
+/**
+ * FEATURE 1: Main feed query for public reviews only (ordered by createdAt descending)
+ * Index: reviews -> visibility (ASC) + createdAt (DESC)
+ */
+export function subscribeToPublicReviews(
+  onUpdate: (reviews: Review[]) => void
+): () => void {
+  const reviewsCol = collection(db, 'reviews');
+  const q = query(
+    reviewsCol,
+    where('visibility', '==', 'public'),
+    orderBy('createdAt', 'desc'),
+    limit(50)
+  );
+
+  return onSnapshot(
+    q,
+    snapshot => {
+      const items: Review[] = snapshot.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id,
+          ownerId: data.ownerId,
+          bookId: data.bookId,
+          bookTitle: data.bookTitle,
+          bookAuthor: data.bookAuthor,
+          bookCoverUrl: data.bookCoverUrl,
+          rating: data.rating,
+          reviewText: data.reviewText,
+          visibility: data.visibility || 'public',
+          activityType: data.activityType || 'reviewed',
+          createdAt: data.createdAt,
+        };
+      });
+      onUpdate(items);
+    },
+    err => {
+      console.warn('subscribeToPublicReviews notice:', err);
+      // Fallback without orderBy if index is building
+      const fallbackQuery = query(reviewsCol, where('visibility', '==', 'public'));
+      return onSnapshot(fallbackQuery, snap => {
+        const items: Review[] = snap.docs.map(d => ({
+          id: d.id,
+          ...d.data(),
+        } as Review));
+        items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        onUpdate(items);
+      });
+    }
+  );
+}
+
+/**
+ * FEATURE 1: User's profile query for all owner reviews (public & private)
+ * Index: reviews -> ownerId (ASC) + createdAt (DESC)
+ */
+export function subscribeToUserReviews(
+  ownerId: string,
+  onUpdate: (reviews: Review[]) => void
+): () => void {
+  const reviewsCol = collection(db, 'reviews');
+  const q = query(
+    reviewsCol,
+    where('ownerId', '==', ownerId),
+    orderBy('createdAt', 'desc')
+  );
+
+  return onSnapshot(
+    q,
+    snapshot => {
+      const items: Review[] = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+      } as Review));
+      onUpdate(items);
+    },
+    err => {
+      console.warn('subscribeToUserReviews notice:', err);
+      const fallbackQuery = query(reviewsCol, where('ownerId', '==', ownerId));
+      return onSnapshot(fallbackQuery, snap => {
+        const items: Review[] = snap.docs.map(d => ({
+          id: d.id,
+          ...d.data(),
+        } as Review));
+        items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        onUpdate(items);
+      });
+    }
+  );
+}
+
+/**
+ * FEATURE 1: Book reviews query for public reviews of a single book
+ * Index: reviews -> bookId (ASC) + visibility (ASC) + createdAt (DESC)
+ */
+export function subscribeToBookReviews(
+  bookId: string,
+  onUpdate: (reviews: Review[]) => void
+): () => void {
+  const reviewsCol = collection(db, 'reviews');
+  const q = query(
+    reviewsCol,
+    where('bookId', '==', bookId),
+    where('visibility', '==', 'public'),
+    orderBy('createdAt', 'desc')
+  );
+
+  return onSnapshot(
+    q,
+    snapshot => {
+      const items: Review[] = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+      } as Review));
+      onUpdate(items);
+    },
+    err => {
+      console.warn('subscribeToBookReviews notice:', err);
+      const fallbackQuery = query(
+        reviewsCol,
+        where('bookId', '==', bookId),
+        where('visibility', '==', 'public')
+      );
+      return onSnapshot(fallbackQuery, snap => {
+        const items: Review[] = snap.docs.map(d => ({
+          id: d.id,
+          ...d.data(),
+        } as Review));
+        onUpdate(items);
+      });
+    }
+  );
+}
+
+/**
+ * FEATURE 2: Like a public review. Document ID is user's uid (one like per user).
+ * Tapping again removes the like.
+ */
+export async function toggleReviewLike(
+  reviewId: string,
+  currentlyLiked: boolean
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('You must be signed in to like a review.');
+
+  const likeDocRef = doc(db, 'reviews', reviewId, 'likes', currentUser.uid);
+  if (currentlyLiked) {
+    await deleteDoc(likeDocRef);
+  } else {
+    await setDoc(likeDocRef, { createdAt: serverTimestamp() });
+  }
+}
+
+/**
+ * FEATURE 2: Real-time listener for likes on a review
+ */
+export function subscribeToReviewLikes(
+  reviewId: string,
+  onUpdate: (likedUids: string[]) => void
+): () => void {
+  const colRef = collection(db, 'reviews', reviewId, 'likes');
+  return onSnapshot(
+    colRef,
+    snap => {
+      const uids = snap.docs.map(d => d.id);
+      onUpdate(uids);
+    },
+    err => console.warn('subscribeToReviewLikes notice:', err)
+  );
+}
+
+/**
+ * FEATURE 2: Adds a comment to reviews/{reviewId}/comments
+ * Max 500 characters, required. Does NOT store name/photo (read from users/{uid}).
+ */
+export async function addReviewComment(
+  reviewId: string,
+  text: string
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('You must be signed in to comment.');
+
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error('Comment text cannot be empty.');
+  if (trimmed.length > 500) throw new Error('Comment text cannot exceed 500 characters.');
+
+  const commentsCol = collection(db, 'reviews', reviewId, 'comments');
+  await addDoc(commentsCol, {
+    userId: currentUser.uid,
+    text: trimmed,
+    createdAt: serverTimestamp(),
+  });
+}
+
+/**
+ * FEATURE 2: Delete own comment, or review owner can delete any comment on their review
+ */
+export async function deleteReviewComment(
+  reviewId: string,
+  commentId: string
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('You must be signed in to delete a comment.');
+  await deleteDoc(doc(db, 'reviews', reviewId, 'comments', commentId));
+}
+
+/**
+ * FEATURE 2: Real-time listener for comments on a review (newest first)
+ */
+export function subscribeToReviewComments(
+  reviewId: string,
+  onUpdate: (comments: Comment[]) => void
+): () => void {
+  const commentsCol = collection(db, 'reviews', reviewId, 'comments');
+  const q = query(commentsCol, orderBy('createdAt', 'desc'));
+
+  return onSnapshot(
+    q,
+    async snapshot => {
+      const comments: Comment[] = [];
+      for (const d of snapshot.docs) {
+        const data = d.data();
+        let formattedDate = 'Just now';
+        if (data.createdAt?.toDate) {
+          formattedDate = data.createdAt.toDate().toLocaleString();
+        }
+
+        // Dynamically resolve author profile from users/{uid}
+        const profile = await getUserProfileDoc(data.userId);
+
+        comments.push({
+          id: d.id,
+          reviewId,
+          userId: data.userId,
+          text: data.text,
+          createdAt: formattedDate,
+          authorName: profile.displayName,
+          authorPhotoUrl: profile.photoURL,
+        });
+      }
+      onUpdate(comments);
+    },
+    err => {
+      console.warn('subscribeToReviewComments notice:', err);
+      // Fallback query if index is building
+      return onSnapshot(commentsCol, async snap => {
+        const comments: Comment[] = [];
+        for (const d of snap.docs) {
+          const data = d.data();
+          const profile = await getUserProfileDoc(data.userId);
+          comments.push({
+            id: d.id,
+            reviewId,
+            userId: data.userId,
+            text: data.text,
+            createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleString() : 'Just now',
+            authorName: profile.displayName,
+            authorPhotoUrl: profile.photoURL,
+          });
+        }
+        onUpdate(comments);
+      });
+    }
+  );
+}
+
+// ============================================================================
+// FEATURE 3: EDIT PROFILE & AVATAR STORAGE
+// ============================================================================
+
+/**
+ * Uploads user display picture to Firebase Storage at avatars/{uid}
+ * Restricts to image/jpeg or image/png under 5 MB.
+ */
+export async function uploadUserAvatar(
+  blob: Blob | Uint8Array,
+  mimeType: string = 'image/jpeg'
+): Promise<string> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('You must be signed in to upload a profile picture.');
+
+  const avatarRef = ref(storage, `avatars/${currentUser.uid}`);
+  await uploadBytes(avatarRef, blob, { contentType: mimeType });
+  const downloadUrl = await getDownloadURL(avatarRef);
+  return downloadUrl;
+}
+
+/**
+ * Updates user display name (3-30 chars) and/or photoURL in both Firebase Auth and Firestore users/{uid}
+ */
+export async function updateUserProfile(params: {
+  displayName: string;
+  photoURL?: string;
+}): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('You must be signed in to edit your profile.');
+
+  const trimmedName = params.displayName.trim();
+  if (trimmedName.length < 3 || trimmedName.length > 30) {
+    throw new Error('Display name must be between 3 and 30 characters.');
+  }
+
+  // 1. Update Firebase Auth
+  const authPayload: { displayName: string; photoURL?: string } = {
+    displayName: trimmedName,
+  };
+  if (params.photoURL !== undefined) {
+    authPayload.photoURL = params.photoURL;
+  }
+  await updateProfile(currentUser, authPayload);
+
+  // 2. Update Firestore users/{uid}
+  const userDocRef = doc(db, 'users', currentUser.uid);
+  const firestorePayload: any = {
+    displayName: trimmedName,
+    updatedAt: serverTimestamp(),
+  };
+  if (params.photoURL !== undefined) {
+    firestorePayload.photoURL = params.photoURL;
+  }
+  await setDoc(userDocRef, firestorePayload, { merge: true });
+
+  // Update in-memory cache
+  userDocsCache.set(currentUser.uid, {
+    displayName: trimmedName,
+    photoURL: params.photoURL || currentUser.photoURL || '',
+  });
 }

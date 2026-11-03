@@ -447,7 +447,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     {item.activityType === 'finished' && 'finished reading'}
                   </Text>
                 </Text>
-                <Text style={styles.feedTime}>{item.timestamp}</Text>
+                <View style={styles.feedTimeRow}>
+                  <Text style={styles.feedTime}>{item.timestamp}</Text>
+                  <View style={styles.feedVisBadge}>
+                    <Icon name={item.visibility === 'private' ? 'lock' : 'globe'} size={10} color={item.visibility === 'private' ? '#8D8070' : '#00635D'} />
+                    <Text style={[styles.feedVisText, item.visibility === 'private' && { color: '#8D8070' }]}>
+                      {item.visibility === 'private' ? 'Only me' : 'Public'}
+                    </Text>
+                  </View>
+                </View>
               </View>
             </View>
 
@@ -498,16 +506,26 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
             {/* Social reactions */}
             <View style={styles.feedActionsRow}>
-              <TouchableOpacity style={styles.feedActionBtn}>
+              <TouchableOpacity
+                style={styles.feedActionBtn}
+                onPress={() => onLikePost && onLikePost(item.id, item.isLiked || false)}
+                activeOpacity={0.7}
+              >
                 <View style={styles.feedActionBtnInner}>
-                  <Icon name="heart" size={13} color="#C0392B" />
-                  <Text style={styles.feedActionBtnText}>{item.likes} Likes</Text>
+                  <Icon name="heart" size={13} color={item.isLiked ? '#C0392B' : '#767676'} />
+                  <Text style={[styles.feedActionBtnText, item.isLiked && { color: '#C0392B', fontWeight: '700' }]}>
+                    {item.likes || 0} {item.isLiked ? 'Liked' : 'Like'}
+                  </Text>
                 </View>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.feedActionBtn}>
+              <TouchableOpacity
+                style={styles.feedActionBtn}
+                onPress={() => onOpenComments && onOpenComments(item.id, item.book.title)}
+                activeOpacity={0.7}
+              >
                 <View style={styles.feedActionBtnInner}>
                   <Icon name="comment" size={13} color="#767676" />
-                  <Text style={styles.feedActionBtnText}>{item.commentsCount} Comments</Text>
+                  <Text style={styles.feedActionBtnText}>{item.commentsCount || 0} Comments</Text>
                 </View>
               </TouchableOpacity>
             </View>
@@ -519,6 +537,26 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
+  feedTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
+  },
+  feedVisBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#E8F3F1',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  feedVisText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#00635D',
+  },
   myReviewActionsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',

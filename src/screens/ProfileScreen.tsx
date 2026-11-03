@@ -13,6 +13,8 @@ import {
 import { Book, FeedActivity, UserProfile } from '../types';
 import { Icon } from '../components/Icon';
 import { StarRating } from '../components/StarRating';
+import { EditProfileModal } from '../components/EditProfileModal';
+import { updateReview } from '../firebase';
 
 interface ProfileScreenProps {
   user: UserProfile | null;
@@ -26,6 +28,7 @@ interface ProfileScreenProps {
   onDeletePost?: (postId: string) => void;
   onLikePost?: (postId: string, currentlyLiked: boolean) => void;
   onOpenComments?: (postId: string, bookTitle: string) => void;
+  onProfileUpdated?: (updated: Partial<UserProfile>) => void;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
@@ -40,9 +43,11 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onDeletePost,
   onLikePost,
   onOpenComments,
+  onProfileUpdated,
 }) => {
   const [imageError, setImageError] = useState(false);
   const [goalModalVisible, setGoalModalVisible] = useState(false);
+  const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
   const [goalInput, setGoalInput] = useState(
     String(user?.readingChallengeGoal || 12)
   );
@@ -95,6 +100,20 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       return `You are ${behind} ${behind === 1 ? 'book' : 'books'} behind schedule. Keep reading!`;
     }
     return 'You are right on track with your reading schedule!';
+  };
+
+
+  const handleChangeVisibility = async (r: FeedActivity) => {
+    const nextVisibility = r.visibility === 'public' ? 'private' : 'public';
+    try {
+      await updateReview(r.id, { visibility: nextVisibility });
+      Alert.alert(
+        'Visibility Updated',
+        `Review visibility changed to ${nextVisibility === 'public' ? 'Public' : 'Only me'}.`
+      );
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not update visibility.');
+    }
   };
 
   const handleSaveGoal = () => {
@@ -245,7 +264,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 </Text>
               </TouchableOpacity>
             ))}
-          </ScrollView>
+          {/* Edit Profile Modal (Feature 3) */}
+      <EditProfileModal
+        visible={editProfileModalVisible}
+        user={user}
+        onClose={() => setEditProfileModalVisible(false)}
+        onProfileUpdated={updated => {
+          if (onProfileUpdated) onProfileUpdated(updated);
+        }}
+      />
+    </ScrollView>
         </View>
       )}
 
@@ -264,6 +292,12 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   <Text style={styles.userReviewAuthor}>by {r.book?.author}</Text>
                   <StarRating rating={r.rating || 5} size={14} />
                   <Text style={styles.userReviewDate}>{r.timestamp}</Text>
+                  <View style={[styles.visBadge, r.visibility === 'public' ? styles.visBadgePub : styles.visBadgePriv]}>
+                    <Icon name={r.visibility === 'public' ? 'globe' : 'lock'} size={10} color={r.visibility === 'public' ? '#00635D' : '#8D8070'} />
+                    <Text style={[styles.visBadgeText, r.visibility === 'public' ? styles.visTextPub : styles.visTextPriv]}>
+                      {r.visibility === 'public' ? 'Public' : 'Only me'}
+                    </Text>
+                  </View>
                 </View>
               </View>
               {Boolean(r.reviewText) && (
@@ -279,6 +313,17 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   <Icon name="edit" size={12} color="#00635D" />
                   <Text style={styles.profileEditBtnText}>Edit Review</Text>
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.profileVisBtn}
+                  onPress={() => handleChangeVisibility(r)}
+                  activeOpacity={0.8}
+                >
+                  <Icon name={r.visibility === 'public' ? 'lock' : 'globe'} size={12} color="#382110" />
+                  <Text style={styles.profileVisBtnText}>
+                    {r.visibility === 'public' ? 'Make Private' : 'Make Public'}
+                  </Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity
                   style={styles.profileDeleteBtn}
                   onPress={() => onDeletePost && onDeletePost(r.id)}
@@ -397,6 +442,62 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
+  editProfileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#E8F3F1',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  editProfileBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#00635D',
+  },
+  visBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginTop: 3,
+    alignSelf: 'flex-start',
+  },
+  visBadgePub: {
+    backgroundColor: '#E8F3F1',
+  },
+  visBadgePriv: {
+    backgroundColor: '#EFECE6',
+  },
+  visBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  visTextPub: {
+    color: '#00635D',
+  },
+  visTextPriv: {
+    color: '#8D8070',
+  },
+  profileVisBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 4,
+    backgroundColor: '#F0ECE1',
+  },
+  profileVisBtnText: {
+    fontSize: 12,
+    color: '#382110',
+    fontWeight: '600',
+  },
   profileReviewActionsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',

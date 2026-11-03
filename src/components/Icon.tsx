@@ -26,7 +26,9 @@ interface IconProps {
   | 'google'
   | 'bell'
   | 'edit'
-  | 'trash';
+  | 'trash'
+  | 'globe'
+  | 'lock';
   size?: number;
   color?: string;
 }

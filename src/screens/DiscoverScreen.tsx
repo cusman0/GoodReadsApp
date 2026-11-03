@@ -1,20 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TextInput,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  FlatList,
+  Image,
+  Dimensions,
 } from 'react-native';
 import { Book } from '../types';
-import { BookCard } from '../components/BookCard';
 import { Icon } from '../components/Icon';
-import { DISCOVER_GENRES } from '../data/discoverData';
 import {
-  fetchPopularBooksFromInternet,
-  searchMultiSourceBooks,
+  DISCOVER_CATEGORIES,
+  searchOpenLibraryBooks,
+  fetchBooksByCategory,
+  fetchWorkDetails,
+  DEFAULT_COVER,
 } from '../services/bookService';
 
 interface DiscoverScreenProps {
@@ -28,170 +31,219 @@ interface DiscoverScreenProps {
   ) => void;
 }
 
+const { width } = Dimensions.get('window');
+const CARD_WIDTH = (width - 48) / 2; // 2-column grid
+
 export const DiscoverScreen: React.FC<DiscoverScreenProps> = ({
   books,
   onSelectBook,
-  onShelfChange,
 }) => {
   const [query, setQuery] = useState('');
-  const [selectedGenre, setSelectedGenre] = useState<string>('All Genres');
-  // Distinct states for search vs. per-genre browsing to prevent cross-contamination
-  const [searchResults, setSearchResults] = useState<Book[]>([]);
-  const [genreLiveBooks, setGenreLiveBooks] = useState<Record<string, Book[]>>({});
+  const [selectedCategory, setSelectedCategory] = useState<string>(DISCOVER_CATEGORIES[0]); // Default: Fantasy
+
+  const [bookList, setBookList] = useState<Book[]>([]);
+  const [page, setPage] = useState(1);
+  const [offset, setOffset] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   const debounceTimerRef = useRef<any>(null);
 
-  // Synchronizes book items with any user bookshelf / rating updates from App state
-  const syncWithUserShelves = (bookList: Book[]): Book[] => {
-    return bookList.map(item => {
-      const local = books.find(
-        b => b.id === item.id || b.title.toLowerCase() === item.title.toLowerCase()
-      );
-      return local
-        ? {
-            ...item,
-            userShelf: local.userShelf,
-            userRating: local.userRating,
-            progressPages: local.progressPages,
+  // Synchronize book items with any user bookshelf / rating updates from App state
+  const syncWithUserShelves = useCallback(
+    (items: Book[]): Book[] => {
+      return items.map(item => {
+        const local = books.find(
+          b => b.id === item.id || b.title.toLowerCase() === item.title.toLowerCase()
+        );
+        return local
+          ? {
+              ...item,
+              userShelf: local.userShelf,
+              userRating: local.userRating,
+              progressPages: local.progressPages,
+            }
+          : item;
+      });
+    },
+    [books]
+  );
+
+  // Fetch initial books for category or query
+  const loadBooks = useCallback(
+    async (searchQuery: string, category: string, isInitial: boolean = true) => {
+      const isSearch = searchQuery.trim().length > 0;
+      if (isInitial) {
+        setLoading(true);
+        setErrorMessage(null);
+      } else {
+        setLoadingMore(true);
+      }
+
+      try {
+        if (isSearch) {
+          const targetPage = isInitial ? 1 : page + 1;
+          const { books: newBooks, total } = await searchOpenLibraryBooks(
+            searchQuery,
+            targetPage
+          );
+
+          if (isInitial) {
+            setBookList(newBooks);
+            setPage(1);
+          } else {
+            setBookList(prev => {
+              const ids = new Set(prev.map(b => b.id));
+              const filtered = newBooks.filter(b => !ids.has(b.id));
+              return [...prev, ...filtered];
+            });
+            setPage(targetPage);
           }
-        : item;
-    });
-  };
+          setTotalCount(total);
+        } else {
+          const targetOffset = isInitial ? 0 : offset + 20;
+          const { books: newBooks, total } = await fetchBooksByCategory(
+            category,
+            targetOffset,
+            20
+          );
 
+          if (isInitial) {
+            setBookList(newBooks);
+            setOffset(0);
+          } else {
+            setBookList(prev => {
+              const ids = new Set(prev.map(b => b.id));
+              const filtered = newBooks.filter(b => !ids.has(b.id));
+              return [...prev, ...filtered];
+            });
+            setOffset(targetOffset);
+          }
+          setTotalCount(total);
+        }
+      } catch (err: any) {
+        console.warn('Discover load notice:', err);
+        setErrorMessage('Unable to load books from Open Library. Please try again.');
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [page, offset]
+  );
 
-  // Unified Search & Per-Genre Loader
+  // Debounced search (500 ms) or category switch
   useEffect(() => {
-    let active = true;
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
 
     const trimmed = query.trim();
-
-    // 1. Browsing Mode: query is empty, fetch books specific to selectedGenre
-    if (!trimmed) {
-      setSearchResults([]);
-
-      // If we don't have cached online results for this specific genre yet, fetch them
-      if (!genreLiveBooks[selectedGenre]) {
-        setLoading(true);
-        const genreToFetch =
-          selectedGenre === 'All Genres' || selectedGenre === 'Trending'
-            ? null
-            : selectedGenre;
-
-        fetchPopularBooksFromInternet(genreToFetch, 40)
-          .then(results => {
-            if (active && results.length > 0) {
-              setGenreLiveBooks(prev => ({
-                ...prev,
-                [selectedGenre]: results,
-              }));
-            }
-          })
-          .catch(err => {
-            console.warn('Popular books fetch notice:', err);
-          })
-          .finally(() => {
-            if (active) setLoading(false);
-          });
-      }
-
-      return () => {
-        active = false;
-      };
+    if (trimmed) {
+      debounceTimerRef.current = setTimeout(() => {
+        loadBooks(trimmed, selectedCategory, true);
+      }, 500);
+    } else {
+      // Default view: category browsing
+      loadBooks('', selectedCategory, true);
     }
 
-    // 2. Search Mode: 350ms debounce across Google Books, Goodreads Scraper & Open Library
-    setLoading(true);
-    debounceTimerRef.current = setTimeout(async () => {
-      try {
-        const results = await searchMultiSourceBooks(trimmed, selectedGenre, 50);
-        if (active) {
-          if (results.length > 0) {
-            setSearchResults(results);
-          } else {
-            // Fallback matching from currently loaded live books
-            const localMatch = books.filter(
-              b =>
-                b.title.toLowerCase().includes(trimmed.toLowerCase()) ||
-                b.author.toLowerCase().includes(trimmed.toLowerCase())
-            );
-            setSearchResults(localMatch);
-          }
-        }
-      } catch (err) {
-        console.warn('Multi-source book search notice:', err);
-      } finally {
-        if (active) setLoading(false);
-      }
-    }, 350);
-
     return () => {
-      active = false;
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [query, selectedGenre]);
+  }, [query, selectedCategory]);
 
-  // Clears search input and purges search results so they never leak into genres
-  const handleClear = () => {
+  const handleClearSearch = () => {
     setQuery('');
-    setSearchResults([]);
   };
 
-  // Compute catalog books strictly from real-time live sources
-  const getCatalogBooks = (): Book[] => {
-    // A. Active Search Mode: Show results matching the search term
-    if (query.trim()) {
-      if (selectedGenre && selectedGenre !== 'All Genres') {
-        const gLower = selectedGenre.toLowerCase();
-        const filtered = searchResults.filter(
-          b =>
-            (Array.isArray(b.genres) &&
-              b.genres.some(
-                g =>
-                  g.toLowerCase().includes(gLower) ||
-                  gLower.includes(g.toLowerCase())
-              )) ||
-            (b.description && b.description.toLowerCase().includes(gLower))
-        );
-        return filtered.length > 0 ? filtered : searchResults;
-      }
-      return searchResults;
-    }
-
-    // B. Browsing Mode: Specific Selected Genre
-    if (selectedGenre && selectedGenre !== 'All Genres') {
-      const live = genreLiveBooks[selectedGenre] || [];
-      if (live.length > 0) return live;
-      // Filter from live catalog books if available
-      return books.filter(
-        b =>
-          Array.isArray(b.genres) &&
-          b.genres.some(g => g.toLowerCase().includes(selectedGenre.toLowerCase()))
-      );
-    }
-
-    // C. Browsing Mode: All Genres (Default)
-    const liveAll = genreLiveBooks['All Genres'] || [];
-    return liveAll.length > 0 ? liveAll : books;
+  const handleLoadMore = () => {
+    if (loading || loadingMore || bookList.length >= totalCount) return;
+    loadBooks(query, selectedCategory, false);
   };
 
-  const displayBooks = syncWithUserShelves(getCatalogBooks());
-  const recommendedList = displayBooks.filter(b => (b.rating || 0) >= 4.2).slice(0, 10);
-  const trendingList = displayBooks.slice(0, 10);
+  const handleBookPress = async (book: Book) => {
+    // If book has workKey and default description, fetch full work description from Open Library
+    if (book.workKey && (!book.description || book.description.startsWith('A celebrated') || book.description.startsWith('Explore this title'))) {
+      const details = await fetchWorkDetails(book.workKey);
+      const detailedBook: Book = {
+        ...book,
+        description: details.description || book.description,
+        subjects: details.subjects.length > 0 ? details.subjects : book.subjects,
+        genres: details.subjects.length > 0 ? details.subjects : book.genres,
+      };
+      onSelectBook(detailedBook);
+    } else {
+      onSelectBook(book);
+    }
+  };
+
+  const displayBooks = syncWithUserShelves(bookList);
+
+  const renderBookCard = ({ item }: { item: Book }) => (
+    <TouchableOpacity
+      style={styles.card}
+      onPress={() => handleBookPress(item)}
+      activeOpacity={0.8}
+    >
+      <View style={styles.coverWrapper}>
+        <Image
+          source={{ uri: item.coverUrl || DEFAULT_COVER }}
+          style={styles.cover}
+          resizeMode="cover"
+        />
+        {item.userShelf && (
+          <View style={styles.shelfIndicatorPill}>
+            <Text style={styles.shelfIndicatorText}>
+              {item.userShelf === 'currently-reading'
+                ? 'Reading'
+                : item.userShelf === 'read'
+                ? 'Read'
+                : 'Want to Read'}
+            </Text>
+          </View>
+        )}
+      </View>
+      <View style={styles.meta}>
+        <Text style={styles.title} numberOfLines={2}>
+          {item.title}
+        </Text>
+        <Text style={styles.author} numberOfLines={1}>
+          {item.author}
+        </Text>
+        {Boolean(item.firstPublishYear) && (
+          <Text style={styles.year}>{item.firstPublishYear}</Text>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+
+  const renderSkeleton = () => (
+    <View style={styles.skeletonGrid}>
+      {[1, 2, 3, 4, 5, 6].map(i => (
+        <View key={i} style={styles.skeletonCard}>
+          <View style={styles.skeletonCover} />
+          <View style={styles.skeletonTitle} />
+          <View style={styles.skeletonAuthor} />
+        </View>
+      ))}
+    </View>
+  );
 
   return (
     <View style={styles.container}>
-      {/* Search Bar with Live Loading Spinner */}
+      {/* Search Bar (500 ms debounce) */}
       <View style={styles.searchHeader}>
         <View style={styles.searchInputRow}>
           <Icon name="search" size={16} color="#888" />
           <TextInput
             style={styles.input}
-            placeholder="Search Google Books, Goodreads, Open Library..."
+            placeholder="Search Open Library by title or author..."
             placeholderTextColor="#888888"
             value={query}
             onChangeText={setQuery}
@@ -201,181 +253,86 @@ export const DiscoverScreen: React.FC<DiscoverScreenProps> = ({
             <ActivityIndicator size="small" color="#00635D" style={{ marginRight: 6 }} />
           )}
           {query.length > 0 && !loading && (
-            <TouchableOpacity onPress={handleClear} style={styles.clearBtn}>
+            <TouchableOpacity onPress={handleClearSearch} style={styles.clearBtn}>
               <Icon name="close" size={14} color="#888" />
             </TouchableOpacity>
           )}
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Genre Tags / Filter Bar */}
-        <View style={styles.genreSection}>
-          <Text style={styles.sectionTitle}>EXPLORE BY GENRE</Text>
-          <ScrollView
+      {/* Category Chips (Shown when not searching) */}
+      {!query && (
+        <View style={styles.chipsContainer}>
+          <FlatList
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.genresRow}
-          >
-            {DISCOVER_GENRES.map((genre, idx) => {
-              const isActive = selectedGenre === genre;
+            data={DISCOVER_CATEGORIES}
+            keyExtractor={item => item}
+            contentContainerStyle={styles.chipsList}
+            renderItem={({ item }) => {
+              const isSelected = selectedCategory === item;
               return (
                 <TouchableOpacity
-                  key={idx}
-                  style={[styles.genreChip, isActive && styles.activeGenreChip]}
-                  onPress={() => setSelectedGenre(genre)}
+                  style={[styles.chip, isSelected && styles.chipActive]}
+                  onPress={() => setSelectedCategory(item)}
                   activeOpacity={0.8}
                 >
-                  <Text
-                    style={[
-                      styles.genreChipText,
-                      isActive && styles.activeGenreChipText,
-                    ]}
-                  >
-                    {genre === 'Trending' ? '🔥 Trending' : genre}
+                  <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
+                    {item}
                   </Text>
                 </TouchableOpacity>
               );
-            })}
-          </ScrollView>
-        </View>
-
-        {/* 1. RECOMMENDED FOR YOU (Shown only in general browsing mode) */}
-        {!query && selectedGenre === 'All Genres' && (
-          <View style={styles.carouselSection}>
-            <View style={styles.carouselHeaderRow}>
-              <View>
-                <View style={styles.badgePill}>
-                  <Text style={styles.badgePillText}>✦ CURATED PICKS</Text>
-                </View>
-                <Text style={styles.carouselSectionTitle}>Recommended For You</Text>
-              </View>
-              <Text style={styles.carouselSubtitle}>Top rated by readers</Text>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.carouselList}
-            >
-              {recommendedList.map(book => (
-                <BookCard
-                  key={`rec_${book.id}`}
-                  book={book}
-                  layout="compact"
-                  onPress={onSelectBook}
-                  onShelfChange={onShelfChange}
-                />
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* 2. TRENDING THIS WEEK (Shown in browsing mode) */}
-        {!query && (selectedGenre === 'All Genres' || selectedGenre === 'Trending') && (
-          <View style={styles.carouselSection}>
-            <View style={styles.carouselHeaderRow}>
-              <View>
-                <View style={[styles.badgePill, { backgroundColor: '#FBE9E7' }]}>
-                  <Text style={[styles.badgePillText, { color: '#D84315' }]}>🔥 POPULAR NOW</Text>
-                </View>
-                <Text style={styles.carouselSectionTitle}>Trending Bestsellers</Text>
-              </View>
-              <Text style={styles.carouselSubtitle}>Viral on BookTok & Goodreads</Text>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.carouselList}
-            >
-              {trendingList.map(book => (
-                <BookCard
-                  key={`trend_${book.id}`}
-                  book={book}
-                  layout="compact"
-                  onPress={onSelectBook}
-                  onShelfChange={onShelfChange}
-                />
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* Choice Awards Banner (Shown in general browsing mode) */}
-        {!query && selectedGenre === 'All Genres' && (
-          <View style={styles.awardsBanner}>
-            <View style={styles.awardsBadge}>
-              <Text style={styles.awardsYear}>2026</Text>
-            </View>
-            <View style={styles.awardsInfo}>
-              <Text style={styles.awardsTitle}>Goodreads Choice Awards</Text>
-              <Text style={styles.awardsSubtitle}>
-                The best books of the year, nominated and voted by the world's largest reader community.
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Results Header */}
-        <View style={styles.resultsHeaderRow}>
-          <View style={styles.resultsCountBadge}>
-            <Text style={styles.resultsCount}>
-              {loading
-                ? 'Searching Google Books & Goodreads...'
-                : query.trim()
-                ? selectedGenre !== 'All Genres'
-                  ? `${displayBooks.length} ${
-                      displayBooks.length === 1 ? 'result' : 'results'
-                    } for "${query}" in ${selectedGenre}`
-                  : `${displayBooks.length} ${
-                      displayBooks.length === 1 ? 'result' : 'results'
-                    } for "${query}" across All Sources`
-                : `${displayBooks.length} ${
-                    displayBooks.length === 1 ? 'book' : 'books'
-                  } in ${selectedGenre}`}
-            </Text>
-          </View>
-          {(selectedGenre !== 'All Genres' || query.length > 0) && (
-            <TouchableOpacity
-              onPress={() => {
-                setSelectedGenre('All Genres');
-                handleClear();
-              }}
-            >
-              <Text style={styles.resetFilter}>Reset to All</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Main Books Catalog */}
-        {displayBooks.map(book => (
-          <BookCard
-            key={book.id}
-            book={book}
-            onPress={onSelectBook}
-            onShelfChange={onShelfChange}
+            }}
           />
-        ))}
+        </View>
+      )}
 
-        {displayBooks.length === 0 && !loading && (
-          <View style={styles.emptyState}>
-            <Icon name="search" size={32} color="#AAA" />
-            <Text style={styles.emptyTitle}>No matching books found</Text>
-            <Text style={styles.emptySubtitle}>
-              {query.trim() && selectedGenre !== 'All Genres'
-                ? `No books found for "${query}" in ${selectedGenre}. Try viewing all genres or clearing your search.`
-                : 'Try searching with another book title, author, or keyword.'}
-            </Text>
-            {query.trim() && selectedGenre !== 'All Genres' && (
-              <TouchableOpacity
-                style={styles.emptyResetBtn}
-                onPress={() => setSelectedGenre('All Genres')}
-              >
-                <Text style={styles.emptyResetBtnText}>Show all results in All Genres</Text>
-              </TouchableOpacity>
-            )}
+      {/* Main Content: Loading Skeleton, Error, Empty, or Book Grid */}
+      {loading ? (
+        renderSkeleton()
+      ) : errorMessage ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{errorMessage}</Text>
+          <TouchableOpacity
+            style={styles.retryBtn}
+            onPress={() => loadBooks(query, selectedCategory, true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.retryBtnText}>Try again</Text>
+          </TouchableOpacity>
+        </View>
+      ) : displayBooks.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <View style={styles.emptyIconCircle}>
+            <Icon name="books" size={32} color="#00635D" />
           </View>
-        )}
-      </ScrollView>
+          <Text style={styles.emptyTitle}>No books found</Text>
+          <Text style={styles.emptySubtitle}>
+            {query
+              ? `No Open Library results for "${query}". Try another search term.`
+              : 'No books available in this category right now.'}
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={displayBooks}
+          keyExtractor={item => item.id}
+          renderItem={renderBookCard}
+          numColumns={2}
+          contentContainerStyle={styles.gridContent}
+          columnWrapperStyle={styles.gridRow}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.footerLoader}>
+                <ActivityIndicator size="small" color="#00635D" />
+                <Text style={styles.footerText}>Loading more books...</Text>
+              </View>
+            ) : undefined
+          }
+        />
+      )}
     </View>
   );
 };
@@ -386,190 +343,214 @@ const styles = StyleSheet.create({
     backgroundColor: '#F4F1EA',
   },
   searchHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
     backgroundColor: '#FFFFFF',
-    padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#E2DED5',
   },
   searchInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F4F1EA',
+    backgroundColor: '#F0ECE1',
     borderRadius: 8,
     paddingHorizontal: 12,
-    height: 42,
-    borderWidth: 1,
-    borderColor: '#D8D5CD',
+    height: 40,
   },
   input: {
     flex: 1,
-    fontSize: 14,
-    color: '#333333',
     marginLeft: 8,
+    fontSize: 14,
+    color: '#382110',
+    paddingVertical: 0,
   },
   clearBtn: {
     padding: 4,
   },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 36,
+  chipsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2DED5',
+    paddingVertical: 10,
   },
-  genreSection: {
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#767676',
-    letterSpacing: 0.8,
-    marginBottom: 10,
-  },
-  genresRow: {
+  chipsList: {
+    paddingHorizontal: 16,
     gap: 8,
   },
-  genreChip: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#D8D5CD',
-    borderRadius: 20,
+  chip: {
     paddingHorizontal: 14,
     paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: '#F0ECE1',
   },
-  activeGenreChip: {
+  chipActive: {
     backgroundColor: '#00635D',
-    borderColor: '#00635D',
   },
-  genreChipText: {
+  chipText: {
     fontSize: 13,
-    color: '#333333',
-    fontWeight: '500',
+    color: '#382110',
+    fontWeight: '600',
   },
-  activeGenreChipText: {
+  chipTextActive: {
     color: '#FFFFFF',
     fontWeight: '700',
   },
-  carouselSection: {
-    marginBottom: 20,
+  gridContent: {
+    padding: 16,
+    paddingBottom: 32,
   },
-  carouselHeaderRow: {
-    flexDirection: 'row',
+  gridRow: {
     justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    marginBottom: 10,
+    marginBottom: 16,
   },
-  badgePill: {
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 7,
+  card: {
+    width: CARD_WIDTH,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E2DED5',
+  },
+  coverWrapper: {
+    width: '100%',
+    height: 190,
+    backgroundColor: '#E8E2D5',
+    position: 'relative',
+  },
+  cover: {
+    width: '100%',
+    height: '100%',
+  },
+  shelfIndicatorPill: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    backgroundColor: 'rgba(0, 99, 93, 0.9)',
+    borderRadius: 10,
+    paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 4,
-    alignSelf: 'flex-start',
-    marginBottom: 2,
   },
-  badgePillText: {
+  shelfIndicatorText: {
+    color: '#FFFFFF',
     fontSize: 10,
     fontWeight: '700',
-    color: '#2E7D32',
-    letterSpacing: 0.5,
   },
-  carouselSectionTitle: {
-    fontFamily: 'serif',
+  meta: {
+    padding: 10,
+    gap: 4,
+  },
+  title: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#382110',
+    lineHeight: 17,
+  },
+  author: {
+    fontSize: 11,
+    color: '#767676',
+  },
+  year: {
+    fontSize: 10,
+    color: '#9E9488',
+    marginTop: 2,
+  },
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    padding: 16,
+  },
+  skeletonCard: {
+    width: CARD_WIDTH,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E2DED5',
+  },
+  skeletonCover: {
+    width: '100%',
+    height: 170,
+    backgroundColor: '#E8E2D5',
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  skeletonTitle: {
+    width: '80%',
+    height: 12,
+    backgroundColor: '#E8E2D5',
+    borderRadius: 4,
+    marginBottom: 6,
+  },
+  skeletonAuthor: {
+    width: '50%',
+    height: 10,
+    backgroundColor: '#E8E2D5',
+    borderRadius: 4,
+  },
+  errorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#C0392B',
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  retryBtn: {
+    backgroundColor: '#00635D',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  retryBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  emptyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#E8E2D5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: '#382110',
-  },
-  carouselSubtitle: {
-    fontSize: 11,
-    color: '#767676',
-    marginBottom: 2,
-  },
-  carouselList: {
-    paddingVertical: 4,
-  },
-  awardsBanner: {
-    backgroundColor: '#382110',
-    borderRadius: 8,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  awardsBadge: {
-    backgroundColor: '#ED9220',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    marginRight: 14,
-  },
-  awardsYear: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-    fontSize: 16,
-  },
-  awardsInfo: {
-    flex: 1,
-  },
-  awardsTitle: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 3,
-  },
-  awardsSubtitle: {
-    color: '#D8D0C5',
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  resultsHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  resultsCountBadge: {
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-  resultsCount: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#2E7D32',
-    letterSpacing: 0.4,
-  },
-  resetFilter: {
-    fontSize: 12,
-    color: '#00635D',
-    fontWeight: '600',
-  },
-  emptyState: {
-    paddingVertical: 40,
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#382110',
-    marginTop: 10,
+    fontFamily: 'serif',
     marginBottom: 6,
   },
   emptySubtitle: {
     fontSize: 13,
-    color: '#666',
+    color: '#767676',
     textAlign: 'center',
     lineHeight: 18,
   },
-  emptyResetBtn: {
-    marginTop: 14,
-    backgroundColor: '#00635D',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
+  footerLoader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
   },
-  emptyResetBtnText: {
-    color: '#FFFFFF',
+  footerText: {
     fontSize: 12,
-    fontWeight: '600',
+    color: '#767676',
   },
 });

@@ -2,6 +2,7 @@ export interface Book {
   id: string;
   title: string;
   author: string;
+  authors?: string[];
   authorImage?: string;
   coverUrl: string;
   rating: number;
@@ -9,8 +10,12 @@ export interface Book {
   reviewCount: number;
   pages: number;
   publishedYear: number;
+  firstPublishYear?: number;
   genres: string[];
+  subjects?: string[];
   description: string;
+  workKey?: string;
+  source?: string;
   userShelf?: 'want-to-read' | 'currently-reading' | 'read' | null;
   userRating?: number;
   progressPages?: number;
@@ -18,15 +23,26 @@ export interface Book {
 
 export interface Review {
   id: string;
+  ownerId: string;
   bookId: string;
-  userName: string;
-  userAvatar: string;
+  bookTitle?: string;
+  bookAuthor?: string;
+  bookCoverUrl?: string;
   rating: number;
-  date: string;
-  content: string;
-  likes: number;
-  commentsCount: number;
+  reviewText: string;
+  visibility: 'public' | 'private';
+  createdAt: any;
+  activityType?: 'reviewed' | 'reading' | 'finished' | 'rated';
+  likesCount?: number;
+  commentsCount?: number;
   isLiked?: boolean;
+
+  // Compatibility fields
+  userName?: string;
+  userAvatar?: string;
+  date?: string;
+  content?: string;
+  likes?: number;
 }
 
 export interface FeedActivity {
@@ -38,6 +54,7 @@ export interface FeedActivity {
   book: Book;
   rating?: number;
   reviewText?: string;
+  visibility: 'public' | 'private';
   timestamp: string;
   likes: number;
   commentsCount: number;
@@ -46,12 +63,14 @@ export interface FeedActivity {
 
 export interface Comment {
   id: string;
-  postId: string;
-  authorId: string;
-  authorName: string;
-  authorPhotoUrl: string;
+  reviewId?: string;
+  postId?: string;
+  userId: string;
+  authorId?: string;
+  authorName?: string;
+  authorPhotoUrl?: string;
   text: string;
-  createdAt: string;
+  createdAt: any;
 }
 
 export interface AppNotification {
@@ -75,9 +94,10 @@ export interface UserProfile {
   email: string;
   avatar: string;
   isGoogleUser?: boolean;
-  booksReadCount: number;
-  wantToReadCount: number;
-  currentlyReadingCount: number;
-  readingChallengeGoal: number;
-  readingChallengeProgress: number;
+  booksReadCount?: number;
+  wantToReadCount?: number;
+  currentlyReadingCount?: number;
+  readingChallengeGoal?: number;
+  readingChallengeProgress?: number;
+  createdAt?: any;
 }
