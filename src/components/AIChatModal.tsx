@@ -74,10 +74,11 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
     ]);
   };
 
+  const topPostTitle = posts.find(p => p.book?.title)?.book?.title;
   const quickPrompts = [
-    'What do readers love about Project Hail Mary?',
-    'Summarize recent book reviews',
-    'Which book has the best character arcs?',
+    topPostTitle ? `What do readers say about "${topPostTitle}"?` : 'Recommend top trending books to read',
+    'Summarize recent community reviews',
+    'What book genres are readers enjoying right now?',
   ];
 
   useEffect(() => {

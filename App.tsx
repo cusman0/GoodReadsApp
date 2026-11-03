@@ -42,6 +42,7 @@ import {
   saveBookToCatalog,
 } from './src/firebase';
 
+import { fetchPopularBooksFromInternet } from './src/services/bookService';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { MyBooksScreen } from './src/screens/MyBooksScreen';
 import { DiscoverScreen } from './src/screens/DiscoverScreen';
@@ -126,8 +127,9 @@ function App() {
   }, []);
 
 
-  // Subscribe to live community books in Firestore
+  // Subscribe to live community books in Firestore and fetch live popular books
   useEffect(() => {
+    let isMounted = true;
     const unsub = subscribeToBooks(catalogBooks => {
       if (catalogBooks && catalogBooks.length > 0) {
         setBooks(prev => {
@@ -151,7 +153,30 @@ function App() {
         });
       }
     });
-    return () => unsub();
+
+    // Populate catalog live from Google Books & Open Library if empty
+    fetchPopularBooksFromInternet(null, 30)
+      .then(liveBooks => {
+        if (isMounted && liveBooks && liveBooks.length > 0) {
+          setBooks(prev => {
+            const map = new Map<string, Book>();
+            prev.forEach(b => map.set(b.id, b));
+            liveBooks.forEach(lb => {
+              if (!map.has(lb.id)) {
+                map.set(lb.id, lb);
+                saveBookToCatalog(lb);
+              }
+            });
+            return Array.from(map.values());
+          });
+        }
+      })
+      .catch(err => console.warn('Initial live books load notice:', err));
+
+    return () => {
+      isMounted = false;
+      unsub();
+    };
   }, []);
 
   // Subscribe to logged-in user's live bookshelf and notifications in Firestore

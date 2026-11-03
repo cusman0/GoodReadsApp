@@ -11,12 +11,7 @@ import {
 import { Book } from '../types';
 import { BookCard } from '../components/BookCard';
 import { Icon } from '../components/Icon';
-import {
-  DISCOVER_GENRES,
-  TRENDING_BOOKS,
-  RECOMMENDED_BOOKS,
-  GENRE_CURATED_BOOKS,
-} from '../data/discoverData';
+import { DISCOVER_GENRES } from '../data/discoverData';
 import {
   fetchPopularBooksFromInternet,
   searchMultiSourceBooks,
@@ -63,8 +58,6 @@ export const DiscoverScreen: React.FC<DiscoverScreenProps> = ({
     });
   };
 
-  const recommendedList = syncWithUserShelves(RECOMMENDED_BOOKS);
-  const trendingList = syncWithUserShelves(TRENDING_BOOKS);
 
   // Unified Search & Per-Genre Loader
   useEffect(() => {
@@ -118,14 +111,8 @@ export const DiscoverScreen: React.FC<DiscoverScreenProps> = ({
           if (results.length > 0) {
             setSearchResults(results);
           } else {
-            // Curated fallback matching the search query
-            const allCurated = [
-              ...RECOMMENDED_BOOKS,
-              ...TRENDING_BOOKS,
-              ...Object.values(GENRE_CURATED_BOOKS).flat(),
-              ...books,
-            ];
-            const localMatch = allCurated.filter(
+            // Fallback matching from currently loaded live books
+            const localMatch = books.filter(
               b =>
                 b.title.toLowerCase().includes(trimmed.toLowerCase()) ||
                 b.author.toLowerCase().includes(trimmed.toLowerCase())
@@ -154,7 +141,7 @@ export const DiscoverScreen: React.FC<DiscoverScreenProps> = ({
     setSearchResults([]);
   };
 
-  // Compute catalog books strictly based on current mode
+  // Compute catalog books strictly from real-time live sources
   const getCatalogBooks = (): Book[] => {
     // A. Active Search Mode: Show results matching the search term
     if (query.trim()) {
@@ -177,50 +164,24 @@ export const DiscoverScreen: React.FC<DiscoverScreenProps> = ({
 
     // B. Browsing Mode: Specific Selected Genre
     if (selectedGenre && selectedGenre !== 'All Genres') {
-      if (selectedGenre === 'Trending') {
-        const live = genreLiveBooks['Trending'] || [];
-        const liveFiltered = live.filter(
-          gb =>
-            !TRENDING_BOOKS.some(
-              t => t.id === gb.id || t.title.toLowerCase() === gb.title.toLowerCase()
-            )
-        );
-        return [...TRENDING_BOOKS, ...liveFiltered];
-      }
-
-      // Unique curated collection for this specific genre
-      const curated = GENRE_CURATED_BOOKS[selectedGenre] || [];
       const live = genreLiveBooks[selectedGenre] || [];
-      const liveFiltered = live.filter(
-        gb =>
-          !curated.some(
-            c => c.id === gb.id || c.title.toLowerCase() === gb.title.toLowerCase()
-          )
+      if (live.length > 0) return live;
+      // Filter from live catalog books if available
+      return books.filter(
+        b =>
+          Array.isArray(b.genres) &&
+          b.genres.some(g => g.toLowerCase().includes(selectedGenre.toLowerCase()))
       );
-      return [...curated, ...liveFiltered];
     }
 
     // C. Browsing Mode: All Genres (Default)
     const liveAll = genreLiveBooks['All Genres'] || [];
-    const combined = [
-      ...liveAll,
-      ...TRENDING_BOOKS.filter(
-        t =>
-          !liveAll.some(
-            gb => gb.id === t.id || gb.title.toLowerCase() === t.title.toLowerCase()
-          )
-      ),
-      ...RECOMMENDED_BOOKS.filter(
-        r =>
-          !liveAll.some(
-            gb => gb.id === r.id || gb.title.toLowerCase() === r.title.toLowerCase()
-          )
-      ),
-    ];
-    return combined.length > 0 ? combined : books;
+    return liveAll.length > 0 ? liveAll : books;
   };
 
   const displayBooks = syncWithUserShelves(getCatalogBooks());
+  const recommendedList = displayBooks.filter(b => (b.rating || 0) >= 4.2).slice(0, 10);
+  const trendingList = displayBooks.slice(0, 10);
 
   return (
     <View style={styles.container}>

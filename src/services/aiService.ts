@@ -478,17 +478,12 @@ Assistant:`;
     };
   } catch (error: any) {
     console.warn('AI Chatbot peak demand notice:', error);
-    const lower = cleanQuery.toLowerCase();
-    if (lower.includes('basketball') || lower.includes('nba') || lower.includes('sports')) {
-      return {
-        reply: 'For basketball fans, top recommendations include "The Mamba Mentality: How I Play" by Kobe Bryant [P1], "Eleven Rings: The Soul of Success" by Phil Jackson, and "The Book of Basketball" by Bill Simmons for court strategy and inspiring sports leadership.',
-        citations: ['[P1]'],
-      };
-    }
-    const sampleBook = posts[0]?.bookTitle || posts[0]?.book?.title || 'Tomorrow, and Tomorrow, and Tomorrow';
+    const friendlyMsg = error?.message?.includes('API key') || error?.message?.includes('quota')
+      ? 'Goodreads AI is currently experiencing high demand. Please try again in a few moments.'
+      : 'Goodreads AI is temporarily unavailable. Please check your internet connection and try again.';
     return {
-      reply: `Based on community discussions in your feed [P1], readers are raving about "${sampleBook}" for its emotional depth and vibrant writing. What authors or genres are you most interested in?`,
-      citations: ['[P1]'],
+      reply: friendlyMsg,
+      citations: [],
     };
   }
 }

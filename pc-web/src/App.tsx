@@ -24,12 +24,13 @@ import {
   subscribeToAuthState,
   signOutUser,
   signInWithGoogle,
+  subscribeToCommunityPosts,
 } from './firebase';
 
 export function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [books, setBooks] = useState<Book[]>(BOOKS_DATA);
-  const [feed] = useState<FeedActivity[]>(FEED_ACTIVITIES);
+  const [feed, setFeed] = useState<FeedActivity[]>([]);
   const [viewMode, setViewMode] = useState<'desktop' | 'mobile' | 'admin'>('desktop');
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [selectedShelf, setSelectedShelf] = useState<string | null>(null);
@@ -38,14 +39,47 @@ export function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
 
-  // Session persistence via Firebase Auth listener (prompt_requirements.md Section 3.1)
+  // Session persistence and live Firestore feed subscription
   useEffect(() => {
-    const unsubscribe = subscribeToAuthState(currentUser => {
+    const unsubscribeAuth = subscribeToAuthState(currentUser => {
       if (currentUser) {
         setUser(currentUser);
       }
     });
-    return () => unsubscribe();
+
+    const unsubscribeFeed = subscribeToCommunityPosts(posts => {
+      const live: FeedActivity[] = (posts || []).map(p => ({
+        id: p.id,
+        userId: p.authorId,
+        userName: p.authorName,
+        userAvatar: p.authorPhotoUrl,
+        activityType: p.activityType || 'reviewed',
+        book: {
+          id: p.bookId,
+          title: p.bookTitle,
+          author: p.bookAuthor,
+          coverUrl: p.bookCoverUrl,
+          rating: p.rating || 5,
+          ratingCount: 1,
+          reviewCount: 1,
+          pages: 320,
+          publishedYear: 2024,
+          genres: ['Fiction'],
+          description: p.text,
+        },
+        rating: p.rating,
+        reviewText: p.text,
+        timestamp: p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString() : 'Just now',
+        likes: p.likeCount || 0,
+        commentsCount: p.commentsCount || 0,
+      }));
+      setFeed(live);
+    });
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribeFeed();
+    };
   }, []);
 
   const showToast = (msg: string) => {
