@@ -106,12 +106,21 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     try {
       let finalPhotoURL = user.avatar;
 
-      // 1. If photo changed and we have a blob, upload to Firebase Storage at avatars/{uid}
+      // 1. If photo changed, upload to Firebase Storage at avatars/{uid}
       if (hasPhotoChanged) {
         if (imageBlobData) {
-          finalPhotoURL = await uploadUserAvatar(imageBlobData.blob, imageBlobData.mimeType);
+          try {
+            finalPhotoURL = await uploadUserAvatar(imageBlobData.blob, imageBlobData.mimeType);
+          } catch (storageErr: any) {
+            console.warn('Storage upload error, falling back to direct photo URI:', storageErr);
+            // If Storage bucket is not yet provisioned in Firebase Console, use photoUri directly
+            if (photoUri) {
+              finalPhotoURL = photoUri;
+            } else {
+              throw storageErr;
+            }
+          }
         } else if (photoUri) {
-          // Direct URL update or fallback
           finalPhotoURL = photoUri;
         }
       }
@@ -132,7 +141,18 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
         { text: 'OK', onPress: onClose },
       ]);
     } catch (err: any) {
-      Alert.alert('Save Failed', err.message || 'Could not update your profile. Please try again.');
+      if (
+        err?.code === 'storage/unknown' ||
+        err?.message?.includes('storage/unknown') ||
+        err?.message?.includes('storage')
+      ) {
+        Alert.alert(
+          'Firebase Storage Setup Required',
+          'Firebase Storage is not enabled on your project yet. Go to your Firebase Console -> Storage and click "Get Started" to activate it.'
+        );
+      } else {
+        Alert.alert('Save Failed', err.message || 'Could not update your profile. Please try again.');
+      }
     } finally {
       setSaving(false);
     }
