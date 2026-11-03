@@ -15,7 +15,10 @@ import {
 } from 'react-native';
 import { UserProfile } from '../types';
 import { Icon } from './Icon';
-import { uploadUserAvatar, updateUserProfile } from '../firebase';
+import { updateUserProfile } from '../firebase';
+import { resizeImageTo256Jpeg } from '../utils/imageUtils';
+
+declare const document: any;
 
 interface EditProfileModalProps {
   visible: boolean;
@@ -35,7 +38,6 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 }) => {
   const [displayName, setDisplayName] = useState(user?.name || '');
   const [photoUri, setPhotoUri] = useState(user?.avatar || '');
-  const [imageBlobData, setImageBlobData] = useState<{ blob: Blob | Uint8Array; mimeType: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [customUrlInput, setCustomUrlInput] = useState('');
   const [showUrlInput, setShowUrlInput] = useState(false);
@@ -44,7 +46,6 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     if (visible && user) {
       setDisplayName(user.name || '');
       setPhotoUri(user.avatar || '');
-      setImageBlobData(null);
       setCustomUrlInput('');
       setShowUrlInput(false);
     }
@@ -55,40 +56,68 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   // Determine if changes were made
   const hasNameChanged = displayName.trim() !== (user.name || '').trim();
   const hasPhotoChanged = photoUri !== (user.avatar || '');
-  const isSaveDisabled = (!hasNameChanged && !hasPhotoChanged) || displayName.trim().length < 3 || displayName.trim().length > 30 || saving;
+  const isNameValid = displayName.trim().length >= 3 && displayName.trim().length <= 30;
+  const isSaveDisabled = (!hasNameChanged && !hasPhotoChanged) || !isNameValid || saving;
 
-  const handleApplyPresetOrUrl = async (uri: string, mime: string = 'image/jpeg') => {
-    try {
-      // Validate image format (JPG or PNG only)
-      const cleanUri = uri.trim();
-      const isPng = cleanUri.toLowerCase().includes('.png') || mime === 'image/png';
-      const isJpg = cleanUri.toLowerCase().includes('.jpg') || cleanUri.toLowerCase().includes('.jpeg') || mime === 'image/jpeg';
+  const handleApplyPreview = (uri: string) => {
+    const cleanUri = uri.trim();
+    if (!cleanUri) return;
 
-      if (!isPng && !isJpg && !cleanUri.startsWith('http')) {
-        Alert.alert('Invalid Format', 'Only JPG and PNG image formats are allowed.');
-        return;
-      }
+    // Check JPG / PNG format
+    const lower = cleanUri.toLowerCase();
+    const isPng = lower.includes('.png') || lower.includes('image/png');
+    const isJpg = lower.includes('.jpg') || lower.includes('.jpeg') || lower.includes('image/jpeg');
 
-      setPhotoUri(cleanUri);
-      setShowUrlInput(false);
-
-      // Convert to blob if possible for Storage upload
-      try {
-        const response = await fetch(cleanUri);
-        const blob = await response.blob();
-        if (blob.size > 5 * 1024 * 1024) {
-          Alert.alert('File Too Large', 'Display picture must be under 5 MB.');
-          setPhotoUri(user.avatar || '');
-          return;
-        }
-        setImageBlobData({ blob, mimeType: isPng ? 'image/png' : 'image/jpeg' });
-      } catch (blobErr) {
-        // Fallback for web/remote URL
-        setImageBlobData(null);
-      }
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Could not load image.');
+    if (!isPng && !isJpg && !cleanUri.startsWith('http')) {
+      Alert.alert('Invalid Format', 'Only JPG and PNG image formats are allowed.');
+      return;
     }
+
+    setPhotoUri(cleanUri);
+    setShowUrlInput(false);
+  };
+
+  const handlePickDeviceImage = () => {
+    // If in Web browser environment: use file input dialog
+    if (typeof document !== 'undefined') {
+      try {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/png,image/jpeg,image/jpg';
+        input.onchange = (e: any) => {
+          const file = e.target?.files?.[0];
+          if (!file) return;
+
+          if (
+            !file.type.includes('jpeg') &&
+            !file.type.includes('png') &&
+            !file.type.includes('jpg')
+          ) {
+            Alert.alert('Invalid Format', 'Only JPG and PNG image formats are allowed.');
+            return;
+          }
+
+          if (file.size > 5 * 1024 * 1024) {
+            Alert.alert('File Too Large', 'Display picture must be under 5 MB.');
+            return;
+          }
+
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (reader.result) {
+              handleApplyPreview(reader.result as string);
+            }
+          };
+          reader.readAsDataURL(file);
+        };
+        input.click();
+        return;
+      } catch (e) {
+        // Fallback to text input
+      }
+    }
+    // Fallback on mobile/native: show input box to paste image URL or file path
+    setShowUrlInput(true);
   };
 
   const handleSave = async () => {
@@ -106,53 +135,36 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     try {
       let finalPhotoURL = user.avatar;
 
-      // 1. If photo changed, upload to Firebase Storage at avatars/{uid}
+      // 1. If photo changed, resize to 256x256, compress to JPEG (~0.8), under 100 KB
       if (hasPhotoChanged) {
-        if (imageBlobData) {
-          try {
-            finalPhotoURL = await uploadUserAvatar(imageBlobData.blob, imageBlobData.mimeType);
-          } catch (storageErr: any) {
-            console.warn('Storage upload error, falling back to direct photo URI:', storageErr);
-            // If Storage bucket is not yet provisioned in Firebase Console, use photoUri directly
-            if (photoUri) {
-              finalPhotoURL = photoUri;
-            } else {
-              throw storageErr;
-            }
-          }
-        } else if (photoUri) {
-          finalPhotoURL = photoUri;
+        if (photoUri && photoUri.trim()) {
+          finalPhotoURL = await resizeImageTo256Jpeg(photoUri);
+        } else {
+          // Reset to default / empty
+          finalPhotoURL = '';
         }
       }
 
-      // 2. Update Firebase Auth and Firestore users/{uid}
+      // 2. Update Firebase Auth (ONLY for displayName) & Firestore users/{uid} (with photoURL base64 data URL)
       await updateUserProfile({
         displayName: trimmed,
         photoURL: finalPhotoURL,
       });
 
-      // 3. Notify parent app state
+      // 3. Notify parent app state immediately
       onProfileUpdated({
         name: trimmed,
-        avatar: finalPhotoURL,
+        avatar: finalPhotoURL || DEFAULT_AVATAR,
       });
 
       Alert.alert('Success', 'Profile updated successfully!', [
         { text: 'OK', onPress: onClose },
       ]);
     } catch (err: any) {
-      if (
-        err?.code === 'storage/unknown' ||
-        err?.message?.includes('storage/unknown') ||
-        err?.message?.includes('storage')
-      ) {
-        Alert.alert(
-          'Firebase Storage Setup Required',
-          'Firebase Storage is not enabled on your project yet. Go to your Firebase Console -> Storage and click "Get Started" to activate it.'
-        );
-      } else {
-        Alert.alert('Save Failed', err.message || 'Could not update your profile. Please try again.');
-      }
+      Alert.alert(
+        'Save Failed',
+        err.message || 'Could not update your profile. Please try again.'
+      );
     } finally {
       setSaving(false);
     }
@@ -184,17 +196,26 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                 />
               </View>
               <Text style={styles.avatarHint}>Cropped to a circle (JPG or PNG, max 5 MB)</Text>
+              <Text style={styles.compressedHint}>Resized to 256x256 JPEG (&lt;100 KB)</Text>
 
               {/* Photo Action Buttons */}
               <View style={styles.photoActionsRow}>
                 <TouchableOpacity
                   style={styles.changePhotoBtn}
-                  onPress={() => setShowUrlInput(!showUrlInput)}
+                  onPress={handlePickDeviceImage}
                   activeOpacity={0.8}
                 >
                   <Icon name="edit" size={13} color="#00635D" />
-                  <Text style={styles.changePhotoBtnText}>
-                    {showUrlInput ? 'Hide Input' : 'Change Picture'}
+                  <Text style={styles.changePhotoBtnText}>Upload from Device</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.secondaryPhotoBtn}
+                  onPress={() => setShowUrlInput(!showUrlInput)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.secondaryPhotoBtnText}>
+                    {showUrlInput ? 'Hide URL' : 'Image URL'}
                   </Text>
                 </TouchableOpacity>
 
@@ -204,7 +225,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                     onPress={() => setPhotoUri('')}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.removePhotoBtnText}>Reset to Default</Text>
+                    <Text style={styles.removePhotoBtnText}>Reset</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -212,7 +233,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
               {/* URL or Device Image Input Box */}
               {showUrlInput && (
                 <View style={styles.urlInputBox}>
-                  <Text style={styles.urlInputLabel}>Paste image URL / Device path:</Text>
+                  <Text style={styles.urlInputLabel}>Paste image URL / path:</Text>
                   <TextInput
                     style={styles.urlInput}
                     placeholder="https://example.com/avatar.jpg"
@@ -224,7 +245,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   <TouchableOpacity
                     style={[styles.applyUrlBtn, !customUrlInput.trim() && styles.btnDisabled]}
                     disabled={!customUrlInput.trim()}
-                    onPress={() => handleApplyPresetOrUrl(customUrlInput)}
+                    onPress={() => handleApplyPreview(customUrlInput)}
                   >
                     <Text style={styles.applyUrlBtnText}>Apply Preview</Text>
                   </TouchableOpacity>
@@ -236,7 +257,13 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
             <View style={styles.inputGroup}>
               <View style={styles.labelRow}>
                 <Text style={styles.label}>Display Name</Text>
-                <Text style={[styles.charCount, (displayName.trim().length < 3 || displayName.trim().length > 30) && styles.charCountWarn]}>
+                <Text
+                  style={[
+                    styles.charCount,
+                    (displayName.trim().length < 3 || displayName.trim().length > 30) &&
+                      styles.charCountWarn,
+                  ]}
+                >
                   {displayName.trim().length}/30
                 </Text>
               </View>
@@ -321,103 +348,139 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
-    gap: 20,
+    paddingBottom: 36,
   },
   avatarSection: {
     alignItems: 'center',
-    paddingVertical: 10,
+    marginBottom: 24,
   },
   avatarCirclePreview: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    overflow: 'hidden',
-    backgroundColor: '#00635D',
+    width: 104,
+    height: 104,
+    borderRadius: 52,
     borderWidth: 3,
     borderColor: '#00635D',
-    alignItems: 'center',
-    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: '#E8E0D6',
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   avatarImg: {
-    width: 96,
-    height: 96,
+    width: '100%',
+    height: '100%',
   },
   avatarHint: {
+    fontSize: 12,
+    color: '#767676',
+    marginBottom: 2,
+  },
+  compressedHint: {
     fontSize: 11,
-    color: '#8D8070',
-    marginTop: 8,
+    color: '#00635D',
+    fontWeight: '600',
+    marginBottom: 12,
   },
   photoActionsRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 12,
+    gap: 8,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
   },
   changePhotoBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
     backgroundColor: '#E8F3F1',
-    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#B2D8D5',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
   },
   changePhotoBtnText: {
-    fontSize: 13,
-    color: '#00635D',
+    fontSize: 12,
     fontWeight: '700',
+    color: '#00635D',
+  },
+  secondaryPhotoBtn: {
+    backgroundColor: '#F3EFEA',
+    borderWidth: 1,
+    borderColor: '#D5CEC6',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  secondaryPhotoBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#382110',
   },
   removePhotoBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#F0ECE1',
+    backgroundColor: '#FBF0EF',
+    borderWidth: 1,
+    borderColor: '#E8C5C2',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   removePhotoBtnText: {
     fontSize: 12,
-    color: '#767676',
     fontWeight: '600',
+    color: '#C0392B',
   },
   urlInputBox: {
     width: '100%',
     marginTop: 14,
-    backgroundColor: '#F4F1EA',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E8E0D6',
+    borderRadius: 10,
     padding: 12,
-    gap: 8,
   },
   urlInputLabel: {
     fontSize: 12,
-    color: '#382110',
     fontWeight: '600',
+    color: '#382110',
+    marginBottom: 6,
   },
   urlInput: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8F6F2',
+    borderWidth: 1,
+    borderColor: '#E8E0D6',
     borderRadius: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     fontSize: 13,
     color: '#382110',
-    borderWidth: 1,
-    borderColor: '#E2DED5',
+    marginBottom: 8,
   },
   applyUrlBtn: {
     backgroundColor: '#00635D',
-    borderRadius: 8,
-    paddingVertical: 8,
+    borderRadius: 6,
+    paddingVertical: 7,
     alignItems: 'center',
   },
   applyUrlBtnText: {
     color: '#FFFFFF',
+    fontSize: 12,
     fontWeight: '700',
-    fontSize: 13,
+  },
+  btnDisabled: {
+    opacity: 0.5,
   },
   inputGroup: {
-    gap: 6,
+    marginBottom: 24,
   },
   labelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 6,
   },
   label: {
     fontSize: 14,
@@ -427,64 +490,57 @@ const styles = StyleSheet.create({
   charCount: {
     fontSize: 12,
     color: '#767676',
-    fontWeight: '600',
   },
   charCountWarn: {
     color: '#C0392B',
+    fontWeight: '700',
   },
   nameInput: {
     backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D5CEC6',
     borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 15,
     color: '#382110',
-    borderWidth: 1,
-    borderColor: '#E2DED5',
   },
   inputHelper: {
     fontSize: 11,
-    color: '#8D8070',
-    lineHeight: 16,
+    color: '#767676',
+    marginTop: 4,
   },
   actionsRow: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 10,
-    marginBottom: 20,
+    marginTop: 8,
   },
   cancelBtn: {
     flex: 1,
-    paddingVertical: 12,
+    backgroundColor: '#EAE6DF',
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#D5CEC6',
+    paddingVertical: 12,
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
   },
   cancelBtnText: {
     fontSize: 15,
-    fontWeight: '600',
-    color: '#767676',
+    fontWeight: '700',
+    color: '#382110',
   },
   saveBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    flex: 2,
     backgroundColor: '#00635D',
+    borderRadius: 8,
+    paddingVertical: 12,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   saveBtnDisabled: {
-    opacity: 0.45,
+    backgroundColor: '#A0BDBB',
+    opacity: 0.6,
   },
   saveBtnText: {
     fontSize: 15,
     fontWeight: '700',
     color: '#FFFFFF',
   },
-  btnDisabled: {
-    opacity: 0.5,
-  },
 });
-

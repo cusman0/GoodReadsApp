@@ -27,10 +27,13 @@ service cloud.firestore {
     }
 
     // 1. Users collection
-    // Read by anyone; written only by the user
+    // Read by anyone; written only by that user. Reject writes where photoURL is longer than 150,000 characters.
     match /users/{uid} {
       allow read: if true;
-      allow create, update: if isUser(uid);
+      allow create, update: if isUser(uid)
+                            && (!('photoURL' in request.resource.data)
+                                || request.resource.data.photoURL == null
+                                || (request.resource.data.photoURL is string && request.resource.data.photoURL.size() <= 150000));
       allow delete: if false;
 
       // User Shelved Books subcollection

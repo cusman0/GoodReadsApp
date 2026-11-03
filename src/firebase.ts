@@ -30,7 +30,6 @@ import {
   where,
   getDocs,
 } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import type { UserProfile, Comment, AppNotification, Book, Review } from './types';
 
@@ -61,7 +60,6 @@ try {
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const storage = getStorage(app);
 
 // AI Gateway & Environment Configuration
 declare const __DEV__: boolean;
@@ -137,14 +135,15 @@ export function mapFirebaseUserToProfile(
 
   // Determine the best avatar: prioritize genuine Google or provider photos over generated placeholders
   let avatar = '';
+  // Prioritize photoURL from users/{uid} so updates show everywhere right away
   if (isGenuinePhoto(overridePhotoURL)) {
     avatar = overridePhotoURL!;
+  } else if (isGenuinePhoto(rawFirestorePhoto)) {
+    avatar = rawFirestorePhoto!;
   } else if (isGenuinePhoto(googlePhoto)) {
     avatar = googlePhoto!;
   } else if (isGenuinePhoto(rawFirebasePhoto)) {
     avatar = rawFirebasePhoto!;
-  } else if (isGenuinePhoto(rawFirestorePhoto)) {
-    avatar = rawFirestorePhoto!;
   } else if (isGenuinePhoto(anyProviderPhoto)) {
     avatar = anyProviderPhoto!;
   } else {
@@ -452,11 +451,7 @@ export function subscribeToAuthState(
           }
         }
 
-        if (
-          !firestoreData?.photoURL ||
-          firestoreData.photoURL.includes('ui-avatars.com') ||
-          firestoreData.photoURL !== realPhoto
-        ) {
+        if (!firestoreData?.photoURL || firestoreData.photoURL.includes('ui-avatars.com')) {
           try {
             await setDoc(userDocRef, { photoURL: realPhoto }, { merge: true });
             if (firestoreData) firestoreData.photoURL = realPhoto;
@@ -1552,28 +1547,12 @@ export function subscribeToReviewComments(
 }
 
 // ============================================================================
-// FEATURE 3: EDIT PROFILE & AVATAR STORAGE
+// FEATURE 3: EDIT PROFILE (SPARK PLAN: BASE64 IN FIRESTORE users/{uid})
 // ============================================================================
 
 /**
- * Uploads user display picture to Firebase Storage at avatars/{uid}
- * Restricts to image/jpeg or image/png under 5 MB.
- */
-export async function uploadUserAvatar(
-  blob: Blob | Uint8Array,
-  mimeType: string = 'image/jpeg'
-): Promise<string> {
-  const currentUser = auth.currentUser;
-  if (!currentUser) throw new Error('You must be signed in to upload a profile picture.');
-
-  const avatarRef = ref(storage, `avatars/${currentUser.uid}`);
-  await uploadBytes(avatarRef, blob, { contentType: mimeType });
-  const downloadUrl = await getDownloadURL(avatarRef);
-  return downloadUrl;
-}
-
-/**
- * Updates user display name (3-30 chars) and/or photoURL in both Firebase Auth and Firestore users/{uid}
+ * Updates user display name (3-30 chars) in Firebase Auth and display name + base64 photoURL in Firestore users/{uid}.
+ * Does NOT call updateProfile with photoURL because Auth cannot store long data URLs.
  */
 export async function updateUserProfile(params: {
   displayName: string;
@@ -1587,16 +1566,12 @@ export async function updateUserProfile(params: {
     throw new Error('Display name must be between 3 and 30 characters.');
   }
 
-  // 1. Update Firebase Auth
-  const authPayload: { displayName: string; photoURL?: string } = {
+  // 1. Update Firebase Auth ONLY for displayName (Auth cannot hold long base64 data URLs)
+  await updateProfile(currentUser, {
     displayName: trimmedName,
-  };
-  if (params.photoURL !== undefined) {
-    authPayload.photoURL = params.photoURL;
-  }
-  await updateProfile(currentUser, authPayload);
+  });
 
-  // 2. Update Firestore users/{uid}
+  // 2. Update Firestore users/{uid} (stores base64 data URL up to 150,000 characters)
   const userDocRef = doc(db, 'users', currentUser.uid);
   const firestorePayload: any = {
     displayName: trimmedName,
@@ -1607,10 +1582,10 @@ export async function updateUserProfile(params: {
   }
   await setDoc(userDocRef, firestorePayload, { merge: true });
 
-  // Update in-memory cache
+  // 3. Update in-memory cache so reviews, comments, and headers update immediately
   userDocsCache.set(currentUser.uid, {
     displayName: trimmedName,
-    photoURL: params.photoURL || currentUser.photoURL || '',
+    photoURL: params.photoURL || '',
   });
 }
 
