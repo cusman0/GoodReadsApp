@@ -6,7 +6,6 @@ import type {
 } from './types';
 import {
   BOOKS_DATA,
-  FEED_ACTIVITIES,
 } from './data/mockData';
 
 import { Navbar } from './components/Navbar';

@@ -87,6 +87,16 @@ service cloud.firestore {
       allow delete: if isSignedIn() && resource.data.recipientId == request.auth.uid;
     }
 
+    // 5. Admins collection
+    // Any signed-in user can read their own admin doc (to verify access).
+    // Any signed-in user can create their own admin doc (demo self-registration).
+    // No client-side updates or deletes — manage via Firebase Console.
+    match /admins/{uid} {
+      allow read: if isUser(uid);
+      allow create: if isUser(uid);
+      allow update, delete: if false;
+    }
+
     // Backward-compatibility: posts collection
     match /posts/{postId} {
       allow read: if true;
