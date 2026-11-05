@@ -44,6 +44,8 @@ import {
   saveUserShelvedBook,
   removeUserShelvedBook,
   saveBookToCatalog,
+  subscribeToUserReadBooks,
+  setUserBookReadStatus,
 } from './src/firebase';
 
 import { fetchPopularBooksFromInternet } from './src/services/bookService';
@@ -68,6 +70,7 @@ function App() {
   const [editingPost, setEditingPost] = useState<FeedActivity | null>(null);
   const [commentPostId, setCommentPostId] = useState<string | null>(null);
   const [commentPostTitle, setCommentPostTitle] = useState<string>('');
+  const [userReadBookIds, setUserReadBookIds] = useState<Set<string>>(new Set());
 
   // Subscribe to Firebase Auth state and real-time community posts
   useEffect(() => {
@@ -219,12 +222,29 @@ function App() {
     };
   }, []);
 
-  // Subscribe to logged-in user's live bookshelf and notifications in Firestore
+  // Subscribe to logged-in user's live bookshelf, readBooks, and notifications in Firestore
   useEffect(() => {
     if (!user) {
+      setUserReadBookIds(new Set());
+      setBooks(prev => prev.map(b => ({ ...b, userShelf: null })));
       setNotifications([]);
       return;
     }
+
+    // 5. Load current user's readBooks subcollection (Option A: users/{uid}/readBooks)
+    const unsubRead = subscribeToUserReadBooks(user.id, readSet => {
+      setUserReadBookIds(readSet);
+      setBooks(prev =>
+        prev.map(b => {
+          if (readSet.has(b.id)) {
+            return { ...b, userShelf: 'read' };
+          } else if (b.userShelf === 'read') {
+            return { ...b, userShelf: null };
+          }
+          return b;
+        })
+      );
+    });
 
     const unsubShelves = subscribeToUserShelvedBooks(user.id, shelvedBooks => {
       if (shelvedBooks) {
@@ -269,6 +289,7 @@ function App() {
     });
 
     return () => {
+      unsubRead();
       unsubShelves();
       unsubNotifs();
     };
@@ -278,12 +299,46 @@ function App() {
     setFeed(prev => [newActivity, ...prev.filter(f => f.id !== newActivity.id)]);
   };
 
-  const handleShelfChange = (
+  const handleShelfChange = async (
     bookId: string,
     shelf: 'want-to-read' | 'currently-reading' | 'read' | null,
     rating?: number,
     progress?: number
   ) => {
+    // 1 & 6. Use Firebase Auth to get current user UID, block if not logged in
+    const currentUser = auth.currentUser;
+    if (!user || !currentUser) {
+      Alert.alert(
+        'Sign In Required',
+        'Please sign in to mark books as read or save them to your shelves.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign In', onPress: () => setAuthModalVisible(true) },
+        ]
+      );
+      return;
+    }
+
+    const currentUid = currentUser.uid;
+    const targetBook = books.find(b => b.id === bookId) || selectedBook;
+    const bookTitle = targetBook?.title || '';
+
+    // 4. Toggle behavior: if already read and tapped read again, remove it
+    let nextShelf = shelf;
+    if (shelf === 'read' && userReadBookIds.has(bookId)) {
+      nextShelf = null;
+    }
+
+    const isMarkedRead = nextShelf === 'read';
+
+    // Write read status only to that user's subcollection users/{uid}/readBooks/{bookId}
+    try {
+      await setUserBookReadStatus(currentUid, bookId, bookTitle, isMarkedRead);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not update read status.');
+      return;
+    }
+
     let updatedBook: Book | null = null;
     let nextBooks: Book[] = [];
 
@@ -292,7 +347,7 @@ function App() {
       if (!exists && selectedBook && selectedBook.id === bookId) {
         updatedBook = {
           ...selectedBook,
-          userShelf: shelf,
+          userShelf: nextShelf,
           userRating: rating !== undefined ? rating : selectedBook.userRating,
           progressPages: progress !== undefined ? progress : selectedBook.progressPages,
         };
@@ -302,7 +357,7 @@ function App() {
           if (b.id === bookId) {
             updatedBook = {
               ...b,
-              userShelf: shelf,
+              userShelf: nextShelf,
               userRating: rating !== undefined ? rating : b.userRating,
               progressPages: progress !== undefined ? progress : b.progressPages,
             };
@@ -312,23 +367,22 @@ function App() {
         });
       }
 
-      // Persist to Cloud Firestore in real-time
-      if (user && updatedBook) {
-        saveBookToCatalog(updatedBook);
-        if (shelf) {
-          saveUserShelvedBook(user.id, updatedBook);
+      // Persist to user's private shelvedBooks (never write userShelf to shared books collection)
+      if (updatedBook) {
+        if (nextShelf) {
+          saveUserShelvedBook(currentUid, updatedBook);
         } else {
-          removeUserShelvedBook(user.id, bookId);
+          removeUserShelvedBook(currentUid, bookId);
         }
 
         const readCount = nextBooks.filter(b => b.userShelf === 'read').length;
         const readingCount = nextBooks.filter(b => b.userShelf === 'currently-reading').length;
         const wantCount = nextBooks.filter(b => b.userShelf === 'want-to-read').length;
 
-        setUser(currentUser =>
-          currentUser
+        setUser(curr =>
+          curr
             ? {
-                ...currentUser,
+                ...curr,
                 booksReadCount: readCount,
                 currentlyReadingCount: readingCount,
                 wantToReadCount: wantCount,
@@ -337,7 +391,7 @@ function App() {
             : null
         );
 
-        updateUserReadingProgress(user.id, readCount, {
+        updateUserReadingProgress(currentUid, readCount, {
           read: readCount,
           reading: readingCount,
           wantToRead: wantCount,

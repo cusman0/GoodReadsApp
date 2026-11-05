@@ -41,6 +41,11 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow write: if isUser(uid);
       }
+
+      // User Read Books subcollection (read status per user)
+      match /readBooks/{bookId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
     }
 
     // 2. Reviews collection

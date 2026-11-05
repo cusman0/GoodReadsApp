@@ -1022,11 +1022,28 @@ export async function markAllNotificationsAsRead(userId: string): Promise<void> 
 
 /**
  * Save a book into Cloud Firestore's live books collection
+ * Strips any user-specific read/shelf status to avoid sharing user data across all users
  */
 export async function saveBookToCatalog(book: Book): Promise<void> {
   try {
     const bookRef = doc(db, 'books', book.id);
-    await setDoc(bookRef, book, { merge: true });
+    const catalogData: any = {
+      id: book.id,
+      title: book.title || '',
+      author: book.author || '',
+      authors: book.authors || (book.author ? [book.author] : []),
+      coverUrl: book.coverUrl || '',
+      rating: book.rating || 0,
+      ratingCount: book.ratingCount || 0,
+      reviewCount: book.reviewCount || 0,
+      pages: book.pages || 0,
+      publishedYear: book.publishedYear || null,
+      genres: book.genres || [],
+      description: book.description || '',
+      source: book.source || 'catalog',
+      createdAt: serverTimestamp(),
+    };
+    await setDoc(bookRef, catalogData, { merge: true });
   } catch (err) {
     console.warn('saveBookToCatalog notice:', err);
   }
@@ -1041,7 +1058,12 @@ export function subscribeToBooks(onBooksUpdate: (books: Book[]) => void): () => 
     booksColRef,
     snapshot => {
       if (!snapshot.empty) {
-        const books = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Book));
+        // Strip any legacy userShelf/isRead from public book documents
+        const books = snapshot.docs.map(d => {
+          const data = d.data();
+          const { userShelf, isRead, userRating, progressPages, ...cleanData } = data as any;
+          return { id: d.id, ...cleanData } as Book;
+        });
         onBooksUpdate(books);
       }
     },
@@ -1073,6 +1095,84 @@ export async function removeUserShelvedBook(userId: string, bookId: string): Pro
   } catch (err) {
     console.warn('removeUserShelvedBook notice:', err);
   }
+}
+
+/**
+ * Toggles a book's read status in users/{uid}/readBooks/{bookId}
+ * Option A: subcollection with fields { bookId, title, dateRead }
+ */
+export async function toggleBookReadStatus(
+  bookId: string,
+  title: string
+): Promise<boolean> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('Please sign in to mark books as read.');
+  }
+
+  const readDocRef = doc(db, 'users', currentUser.uid, 'readBooks', bookId);
+  const docSnap = await getDoc(readDocRef);
+
+  if (docSnap.exists()) {
+    await deleteDoc(readDocRef);
+    return false;
+  } else {
+    await setDoc(readDocRef, {
+      bookId,
+      title: title || '',
+      dateRead: serverTimestamp(),
+    });
+    return true;
+  }
+}
+
+/**
+ * Sets a book's read status in users/{uid}/readBooks/{bookId}
+ */
+export async function setUserBookReadStatus(
+  userId: string,
+  bookId: string,
+  title: string,
+  isRead: boolean
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || currentUser.uid !== userId) {
+    throw new Error('Please sign in to update your reading shelf.');
+  }
+
+  const readDocRef = doc(db, 'users', userId, 'readBooks', bookId);
+  if (isRead) {
+    await setDoc(readDocRef, {
+      bookId,
+      title: title || '',
+      dateRead: serverTimestamp(),
+    });
+  } else {
+    await deleteDoc(readDocRef);
+  }
+}
+
+/**
+ * Real-time subscription to the current user's readBooks subcollection
+ */
+export function subscribeToUserReadBooks(
+  userId: string,
+  onUpdate: (readBookIds: Set<string>) => void
+): () => void {
+  const colRef = collection(db, 'users', userId, 'readBooks');
+  return onSnapshot(
+    colRef,
+    snapshot => {
+      const readSet = new Set<string>();
+      snapshot.docs.forEach(d => {
+        readSet.add(d.id);
+      });
+      onUpdate(readSet);
+    },
+    err => {
+      console.warn('subscribeToUserReadBooks notice:', err);
+    }
+  );
 }
 
 /**
