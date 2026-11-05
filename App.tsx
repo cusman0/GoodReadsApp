@@ -227,22 +227,40 @@ function App() {
     }
 
     const unsubShelves = subscribeToUserShelvedBooks(user.id, shelvedBooks => {
-      if (shelvedBooks && shelvedBooks.length > 0) {
-        setBooks(prev => {
-          const map = new Map<string, Book>();
-          prev.forEach(b => map.set(b.id, b));
-          shelvedBooks.forEach(sb => {
-            const existing = map.get(sb.id);
-            map.set(sb.id, {
-              ...(existing || sb),
-              ...sb,
-              userShelf: sb.userShelf,
-              userRating: sb.userRating,
-              progressPages: sb.progressPages,
+      if (shelvedBooks) {
+        const readCount = shelvedBooks.filter(sb => sb.userShelf === 'read').length;
+        const readingCount = shelvedBooks.filter(sb => sb.userShelf === 'currently-reading').length;
+        const wantCount = shelvedBooks.filter(sb => sb.userShelf === 'want-to-read').length;
+
+        setUser(currentUser =>
+          currentUser
+            ? {
+                ...currentUser,
+                booksReadCount: readCount,
+                currentlyReadingCount: readingCount,
+                wantToReadCount: wantCount,
+                readingChallengeProgress: readCount,
+              }
+            : null
+        );
+
+        if (shelvedBooks.length > 0) {
+          setBooks(prev => {
+            const map = new Map<string, Book>();
+            prev.forEach(b => map.set(b.id, b));
+            shelvedBooks.forEach(sb => {
+              const existing = map.get(sb.id);
+              map.set(sb.id, {
+                ...(existing || sb),
+                ...sb,
+                userShelf: sb.userShelf,
+                userRating: sb.userRating,
+                progressPages: sb.progressPages,
+              });
             });
+            return Array.from(map.values());
           });
-          return Array.from(map.values());
-        });
+        }
       }
     });
 

@@ -77,13 +77,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
-  // Live user bookshelf & reading challenge metrics (fully synchronized)
-  const readBooksCount = books.filter(b => b.userShelf === 'read').length;
-  const liveBooksRead = Math.max(
-    user?.readingChallengeProgress || 0,
-    user?.booksReadCount || 0,
-    readBooksCount
-  );
+  // Live user bookshelf & reading challenge metrics synchronized directly with My Books tab
+  const liveBooksRead = books.filter(b => b.userShelf === 'read').length;
   const liveReading = books.filter(b => b.userShelf === 'currently-reading').length;
   const liveWantToRead = books.filter(b => b.userShelf === 'want-to-read').length;
   const challengeGoal =
