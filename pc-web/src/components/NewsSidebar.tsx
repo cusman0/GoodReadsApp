@@ -26,41 +26,41 @@ export const NewsSidebar: React.FC = () => {
         </button>
       </div>
 
-      {/* News & Interviews */}
+      {/* Community & Discussions */}
       <div className="bg-white rounded-lg border border-[#E0DDD5] p-4">
         <h3 className="font-serif font-bold text-xs uppercase tracking-wider text-[#382110] mb-3">
-          NEWS & INTERVIEWS
+          COMMUNITY & DISCUSSIONS
         </h3>
 
-        <div className="space-y-3">
-          {NEWS_ITEMS.map(item => (
-            <article key={item.id} className="flex gap-3 group cursor-pointer">
-              <img
-                src={item.image}
-                alt={item.title}
-                className="w-14 h-14 object-cover rounded-md border border-gray-100 shrink-0 group-hover:opacity-90"
-              />
-              <div className="min-w-0">
-                <h4 className="font-serif font-bold text-xs text-gray-900 group-hover:text-[#00635D] line-clamp-2 leading-tight">
-                  {item.title}
-                </h4>
-                <div className="flex items-center gap-2 mt-1 text-[10px] text-gray-500">
-                  <span>{item.date}</span>
-                  <span>•</span>
-                  <span className="flex items-center gap-0.5">
-                    <MessageCircle className="w-3 h-3" /> {item.comments}
-                  </span>
+        {NEWS_ITEMS.length > 0 ? (
+          <div className="space-y-3">
+            {NEWS_ITEMS.map(item => (
+              <article key={item.id} className="flex gap-3 group cursor-pointer">
+                <img
+                  src={item.image}
+                  alt={item.title}
+                  className="w-14 h-14 object-cover rounded-md border border-gray-100 shrink-0 group-hover:opacity-90"
+                />
+                <div className="min-w-0">
+                  <h4 className="font-serif font-bold text-xs text-gray-900 group-hover:text-[#00635D] line-clamp-2 leading-tight">
+                    {item.title}
+                  </h4>
+                  <div className="flex items-center gap-2 mt-1 text-[10px] text-gray-500">
+                    <span>{item.date}</span>
+                    <span>•</span>
+                    <span className="flex items-center gap-0.5">
+                      <MessageCircle className="w-3 h-3" /> {item.comments}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))}
-        </div>
-
-        <div className="mt-3 pt-3 border-t border-gray-100 text-right">
-          <a href="#news" className="text-[11px] font-semibold text-[#00635D] hover:underline">
-            More news & interviews →
-          </a>
-        </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-600 leading-relaxed">
+            Welcome to the Goodreads community! Share your book reviews, track reading challenges, and explore recommendations from readers worldwide.
+          </p>
+        )}
       </div>
 
       {/* Quote of the Day */}

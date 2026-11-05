@@ -300,29 +300,16 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
                 </div>
               </div>
 
-              {/* Community Reviews preview */}
+              {/* Community Reviews */}
               <div className="mt-8 pt-4 border-t border-[#EAE7DF]">
                 <h3 className="font-serif font-bold text-base text-gray-900 mb-3">
                   Community Reviews
                 </h3>
 
-                <div className="space-y-4">
-                  <div className="bg-white p-4 rounded-lg border border-gray-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <img
-                        src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80"
-                        alt="Elena"
-                        className="w-7 h-7 rounded-full object-cover"
-                      />
-                      <span className="font-bold text-xs text-gray-900">Elena Rostova</span>
-                      <div className="flex text-[#ED9220] ml-2">
-                        {'★★★★★'}
-                      </div>
-                    </div>
-                    <p className="font-serif text-xs text-gray-700 leading-relaxed">
-                      One of the most emotionally resonant books I have ever read. The character dynamics felt completely authentic and timeless.
-                    </p>
-                  </div>
+                <div className="bg-white p-4 rounded-lg border border-gray-200 text-center">
+                  <p className="text-xs text-gray-600">
+                    Reviews from verified community readers will appear here.
+                  </p>
                 </div>
               </div>
             </div>

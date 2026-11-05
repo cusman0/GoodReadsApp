@@ -130,10 +130,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleSocialDemo = (profile: UserProfile) => {
-    onLoginSuccess(profile);
-    onClose();
-  };
+
 
   return (
     <Modal
@@ -224,7 +221,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <Text style={styles.label}>Your Name</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="e.g. Ashley Valdez"
+                    placeholder="e.g. Jane Doe"
                     placeholderTextColor="#999999"
                     value={name}
                     onChangeText={setName}
@@ -330,51 +327,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </>
                 )}
               </TouchableOpacity>
-
-              {/* Amazon & Apple demo buttons */}
-              <View style={styles.secondarySocialRow}>
-                <TouchableOpacity
-                  style={styles.secondarySocialBtn}
-                  onPress={() =>
-                    handleSocialDemo({
-                      id: 'usr_amazon_demo',
-                      name: 'Amazon Reader',
-                      email: 'reader@amazon.com',
-                      avatar:
-                        'https://ui-avatars.com/api/?name=Amazon+Reader&background=FF9900&color=fff&size=120',
-                      isGoogleUser: false,
-                      booksReadCount: 0,
-                      wantToReadCount: 0,
-                      currentlyReadingCount: 0,
-                      readingChallengeGoal: 20,
-                      readingChallengeProgress: 0,
-                    })
-                  }
-                >
-                  <Text style={styles.secondarySocialText}>🛒 Amazon</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.secondarySocialBtn}
-                  onPress={() =>
-                    handleSocialDemo({
-                      id: 'usr_apple_demo',
-                      name: 'Apple Reader',
-                      email: 'reader@icloud.com',
-                      avatar:
-                        'https://ui-avatars.com/api/?name=Apple+Reader&background=1C1C1E&color=fff&size=120',
-                      isGoogleUser: false,
-                      booksReadCount: 0,
-                      wantToReadCount: 0,
-                      currentlyReadingCount: 0,
-                      readingChallengeGoal: 20,
-                      readingChallengeProgress: 0,
-                    })
-                  }
-                >
-                  <Text style={styles.secondarySocialText}> Apple</Text>
-                </TouchableOpacity>
-              </View>
 
               <Text style={styles.termsNotice}>
                 By continuing, you agree to Goodreads{' '}
