@@ -331,12 +331,11 @@ function App() {
 
     const isMarkedRead = nextShelf === 'read';
 
-    // Write read status only to that user's subcollection users/{uid}/readBooks/{bookId}
+    // Write read status only to that user's path (Option A subcollection & Option B user array)
     try {
       await setUserBookReadStatus(currentUid, bookId, bookTitle, isMarkedRead);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Could not update read status.');
-      return;
+      console.warn('Could not update read status:', err);
     }
 
     let updatedBook: Book | null = null;

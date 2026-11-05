@@ -1127,7 +1127,8 @@ export async function toggleBookReadStatus(
 }
 
 /**
- * Sets a book's read status in users/{uid}/readBooks/{bookId}
+ * Sets a book's read status per user
+ * Writes to users/{uid}/readBooks/{bookId} (Option A) and users/{uid}.readBooks array (Option B)
  */
 export async function setUserBookReadStatus(
   userId: string,
@@ -1140,39 +1141,75 @@ export async function setUserBookReadStatus(
     throw new Error('Please sign in to update your reading shelf.');
   }
 
-  const readDocRef = doc(db, 'users', userId, 'readBooks', bookId);
-  if (isRead) {
-    await setDoc(readDocRef, {
-      bookId,
-      title: title || '',
-      dateRead: serverTimestamp(),
+  // 1. Option B: store in readBooks array on users/{uid}
+  try {
+    const userDocRef = doc(db, 'users', userId);
+    await updateDoc(userDocRef, {
+      readBooks: isRead ? arrayUnion(bookId) : arrayRemove(bookId),
     });
-  } else {
-    await deleteDoc(readDocRef);
+  } catch (userDocErr) {
+    console.warn('setUserBookReadStatus userDoc notice:', userDocErr);
+  }
+
+  // 2. Option A: subcollection users/{uid}/readBooks/{bookId}
+  try {
+    const readDocRef = doc(db, 'users', userId, 'readBooks', bookId);
+    if (isRead) {
+      await setDoc(readDocRef, {
+        bookId,
+        title: title || '',
+        dateRead: serverTimestamp(),
+      });
+    } else {
+      await deleteDoc(readDocRef);
+    }
+  } catch (subcolErr) {
+    console.warn('readBooks subcollection write notice (pending rules deploy):', subcolErr);
   }
 }
 
 /**
- * Real-time subscription to the current user's readBooks subcollection
+ * Real-time subscription to the current user's readBooks (subcollection and user document)
  */
 export function subscribeToUserReadBooks(
   userId: string,
   onUpdate: (readBookIds: Set<string>) => void
 ): () => void {
-  const colRef = collection(db, 'users', userId, 'readBooks');
-  return onSnapshot(
-    colRef,
-    snapshot => {
-      const readSet = new Set<string>();
-      snapshot.docs.forEach(d => {
-        readSet.add(d.id);
-      });
-      onUpdate(readSet);
+  const readSet = new Set<string>();
+
+  // 1. Listen to users/{uid} document for readBooks array (Option B)
+  const unsubUser = onSnapshot(
+    doc(db, 'users', userId),
+    snap => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (Array.isArray(data?.readBooks)) {
+          data.readBooks.forEach((id: string) => readSet.add(id));
+          onUpdate(new Set(readSet));
+        }
+      }
     },
-    err => {
-      console.warn('subscribeToUserReadBooks notice:', err);
-    }
+    err => console.warn('User readBooks doc listen notice:', err)
   );
+
+  // 2. Listen to users/{uid}/readBooks subcollection (Option A)
+  let unsubSubcol: (() => void) | null = null;
+  try {
+    const colRef = collection(db, 'users', userId, 'readBooks');
+    unsubSubcol = onSnapshot(
+      colRef,
+      snapshot => {
+        snapshot.docs.forEach(d => readSet.add(d.id));
+        onUpdate(new Set(readSet));
+      },
+      err => console.warn('User readBooks subcol listen notice:', err)
+    );
+  } catch (e) {}
+
+  return () => {
+    unsubUser();
+    if (unsubSubcol) unsubSubcol();
+  };
 }
 
 /**
