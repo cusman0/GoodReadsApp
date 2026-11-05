@@ -229,18 +229,19 @@ function App() {
     const unsubShelves = subscribeToUserShelvedBooks(user.id, shelvedBooks => {
       if (shelvedBooks && shelvedBooks.length > 0) {
         setBooks(prev => {
-          const shelfMap = new Map<string, Book>(shelvedBooks.map(sb => [sb.id, sb]));
-          return prev.map(b => {
-            const shelved = shelfMap.get(b.id);
-            return shelved
-              ? {
-                  ...b,
-                  userShelf: shelved.userShelf,
-                  userRating: shelved.userRating,
-                  progressPages: shelved.progressPages,
-                }
-              : b;
+          const map = new Map<string, Book>();
+          prev.forEach(b => map.set(b.id, b));
+          shelvedBooks.forEach(sb => {
+            const existing = map.get(sb.id);
+            map.set(sb.id, {
+              ...(existing || sb),
+              ...sb,
+              userShelf: sb.userShelf,
+              userRating: sb.userRating,
+              progressPages: sb.progressPages,
+            });
           });
+          return Array.from(map.values());
         });
       }
     });

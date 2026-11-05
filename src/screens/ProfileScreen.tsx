@@ -213,11 +213,28 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     );
   }
 
-  const readBooks = books.filter(b => b.userShelf === 'read');
   const fallbackFeedReviews = feed.filter(
     f => f.userId === user.id || (user.name && f.userName === user.name)
   );
   const userReviews = localReviews.length > 0 ? localReviews : fallbackFeedReviews;
+
+  // Recently read books: dynamically resolved from shelved 'read' books + reviewed books
+  const readBookIds = new Set<string>();
+  const readBooks: Book[] = [];
+
+  books.filter(b => b.userShelf === 'read').forEach(b => {
+    if (!readBookIds.has(b.id)) {
+      readBookIds.add(b.id);
+      readBooks.push(b);
+    }
+  });
+
+  userReviews.forEach(r => {
+    if (r.book && r.book.id && !readBookIds.has(r.book.id)) {
+      readBookIds.add(r.book.id);
+      readBooks.push(r.book);
+    }
+  });
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
