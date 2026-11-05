@@ -77,18 +77,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
-  // Live user bookshelf & reading challenge metrics
-  const liveBooksRead = books.filter(b => b.userShelf === 'read').length;
+  // Live user bookshelf & reading challenge metrics (fully synchronized)
+  const readBooksCount = books.filter(b => b.userShelf === 'read').length;
+  const liveBooksRead = Math.max(
+    user?.readingChallengeProgress || 0,
+    user?.booksReadCount || 0,
+    readBooksCount
+  );
   const liveReading = books.filter(b => b.userShelf === 'currently-reading').length;
   const liveWantToRead = books.filter(b => b.userShelf === 'want-to-read').length;
   const challengeGoal =
     user?.readingChallengeGoal && user.readingChallengeGoal > 0
       ? user.readingChallengeGoal
       : 12;
-  const challengeProgress = Math.max(
-    user?.readingChallengeProgress || 0,
-    liveBooksRead
-  );
+  const challengeProgress = liveBooksRead;
   const challengePercent = Math.min(
     100,
     Math.round((challengeProgress / challengeGoal) * 100)

@@ -106,8 +106,13 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     }
   }, [user?.readingChallengeGoal]);
 
-  // Live shelf statistics calculated directly from user's current book shelves
-  const liveBooksRead = books.filter(b => b.userShelf === 'read').length;
+  // Live shelf statistics calculated directly from user's current book shelves (synchronized)
+  const readBooksCount = books.filter(b => b.userShelf === 'read').length;
+  const liveBooksRead = Math.max(
+    user?.readingChallengeProgress || 0,
+    user?.booksReadCount || 0,
+    readBooksCount
+  );
   const liveReading = books.filter(b => b.userShelf === 'currently-reading').length;
   const liveWantToRead = books.filter(b => b.userShelf === 'want-to-read').length;
 
@@ -115,10 +120,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     user?.readingChallengeGoal && user.readingChallengeGoal > 0
       ? user.readingChallengeGoal
       : 12;
-  const challengeProgress = Math.max(
-    user?.readingChallengeProgress || 0,
-    liveBooksRead
-  );
+  const challengeProgress = liveBooksRead;
   const challengePercent = Math.min(
     100,
     Math.round((challengeProgress / challengeGoal) * 100)
