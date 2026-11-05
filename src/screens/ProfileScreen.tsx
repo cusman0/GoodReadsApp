@@ -329,16 +329,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 </Text>
               </TouchableOpacity>
             ))}
-          {/* Edit Profile Modal (Feature 3) */}
-      <EditProfileModal
-        visible={editProfileModalVisible}
-        user={user}
-        onClose={() => setEditProfileModalVisible(false)}
-        onProfileUpdated={updated => {
-          if (onProfileUpdated) onProfileUpdated(updated);
-        }}
-      />
-    </ScrollView>
+          </ScrollView>
         </View>
       )}
 
@@ -502,6 +493,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </View>
         </View>
       </Modal>
+
+      {/* Edit Profile Modal (Feature 3) */}
+      <EditProfileModal
+        visible={editProfileModalVisible}
+        user={user}
+        onClose={() => setEditProfileModalVisible(false)}
+        onProfileUpdated={updated => {
+          if (onProfileUpdated) onProfileUpdated(updated);
+        }}
+      />
     </ScrollView>
   );
 };

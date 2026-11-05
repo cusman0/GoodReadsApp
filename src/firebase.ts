@@ -1295,38 +1295,67 @@ export function subscribeToPublicReviews(
     limit(50)
   );
 
+  const processSnapshot = async (docs: any[]) => {
+    const currentUid = auth.currentUser?.uid;
+    const items: Review[] = [];
+    for (const d of docs) {
+      const data = d.data();
+      const ownerId = data.ownerId || data.authorId;
+      const profile = await getUserProfileDoc(ownerId);
+      let likesCount = 0;
+      let isLiked = false;
+      let commentsCount = 0;
+      try {
+        const likesSnap = await getDocs(collection(db, 'reviews', d.id, 'likes'));
+        likesCount = likesSnap.size;
+        if (currentUid) isLiked = likesSnap.docs.some(ld => ld.id === currentUid);
+      } catch (e) {}
+      try {
+        const commentsSnap = await getDocs(collection(db, 'reviews', d.id, 'comments'));
+        commentsCount = commentsSnap.size;
+      } catch (e) {}
+
+      items.push({
+        id: d.id,
+        ownerId,
+        bookId: data.bookId,
+        bookTitle: data.bookTitle,
+        bookAuthor: data.bookAuthor,
+        bookCoverUrl: data.bookCoverUrl,
+        rating: data.rating,
+        reviewText: data.reviewText,
+        visibility: data.visibility || 'public',
+        activityType: data.activityType || 'reviewed',
+        createdAt: data.createdAt,
+        userName: profile.displayName || 'Reader',
+        userAvatar:
+          profile.photoURL ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(
+            profile.displayName || 'Reader'
+          )}&background=00635D&color=fff`,
+        likesCount,
+        commentsCount,
+        likes: likesCount,
+        isLiked,
+        date: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString() : 'Just now',
+      });
+    }
+    onUpdate(items);
+  };
+
   return onSnapshot(
     q,
     snapshot => {
-      const items: Review[] = snapshot.docs.map(d => {
-        const data = d.data();
-        return {
-          id: d.id,
-          ownerId: data.ownerId,
-          bookId: data.bookId,
-          bookTitle: data.bookTitle,
-          bookAuthor: data.bookAuthor,
-          bookCoverUrl: data.bookCoverUrl,
-          rating: data.rating,
-          reviewText: data.reviewText,
-          visibility: data.visibility || 'public',
-          activityType: data.activityType || 'reviewed',
-          createdAt: data.createdAt,
-        };
-      });
-      onUpdate(items);
+      processSnapshot(snapshot.docs);
     },
     err => {
       console.warn('subscribeToPublicReviews notice:', err);
       // Fallback without orderBy if index is building
       const fallbackQuery = query(reviewsCol, where('visibility', '==', 'public'));
       return onSnapshot(fallbackQuery, snap => {
-        const items: Review[] = snap.docs.map(d => ({
-          id: d.id,
-          ...d.data(),
-        } as Review));
-        items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-        onUpdate(items);
+        const docs = [...snap.docs];
+        docs.sort((a, b) => (b.data().createdAt?.seconds || 0) - (a.data().createdAt?.seconds || 0));
+        processSnapshot(docs);
       });
     }
   );
@@ -1347,25 +1376,65 @@ export function subscribeToUserReviews(
     orderBy('createdAt', 'desc')
   );
 
+  const processUserDocs = async (docs: any[]) => {
+    const profile = await getUserProfileDoc(ownerId);
+    const currentUid = auth.currentUser?.uid;
+    const items: Review[] = [];
+    for (const d of docs) {
+      const data = d.data();
+      let likesCount = 0;
+      let isLiked = false;
+      let commentsCount = 0;
+      try {
+        const likesSnap = await getDocs(collection(db, 'reviews', d.id, 'likes'));
+        likesCount = likesSnap.size;
+        if (currentUid) isLiked = likesSnap.docs.some(ld => ld.id === currentUid);
+      } catch (e) {}
+      try {
+        const commentsSnap = await getDocs(collection(db, 'reviews', d.id, 'comments'));
+        commentsCount = commentsSnap.size;
+      } catch (e) {}
+
+      items.push({
+        id: d.id,
+        ownerId,
+        bookId: data.bookId,
+        bookTitle: data.bookTitle,
+        bookAuthor: data.bookAuthor,
+        bookCoverUrl: data.bookCoverUrl,
+        rating: data.rating,
+        reviewText: data.reviewText,
+        visibility: data.visibility || 'private',
+        activityType: data.activityType || 'reviewed',
+        createdAt: data.createdAt,
+        userName: profile.displayName || 'Reader',
+        userAvatar:
+          profile.photoURL ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(
+            profile.displayName || 'Reader'
+          )}&background=00635D&color=fff`,
+        likesCount,
+        commentsCount,
+        likes: likesCount,
+        isLiked,
+        date: data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString() : 'Just now',
+      });
+    }
+    onUpdate(items);
+  };
+
   return onSnapshot(
     q,
     snapshot => {
-      const items: Review[] = snapshot.docs.map(d => ({
-        id: d.id,
-        ...d.data(),
-      } as Review));
-      onUpdate(items);
+      processUserDocs(snapshot.docs);
     },
     err => {
       console.warn('subscribeToUserReviews notice:', err);
       const fallbackQuery = query(reviewsCol, where('ownerId', '==', ownerId));
       return onSnapshot(fallbackQuery, snap => {
-        const items: Review[] = snap.docs.map(d => ({
-          id: d.id,
-          ...d.data(),
-        } as Review));
-        items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-        onUpdate(items);
+        const docs = [...snap.docs];
+        docs.sort((a, b) => (b.data().createdAt?.seconds || 0) - (a.data().createdAt?.seconds || 0));
+        processUserDocs(docs);
       });
     }
   );

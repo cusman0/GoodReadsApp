@@ -566,6 +566,13 @@ function App() {
                   ...prev,
                   ...updated,
                 } : null);
+                if (user?.id) {
+                  setFeed(prev => prev.map(item => item.userId === user.id ? {
+                    ...item,
+                    userName: updated.name || item.userName,
+                    userAvatar: updated.avatar || item.userAvatar,
+                  } : item));
+                }
               }}
             />
           )}
