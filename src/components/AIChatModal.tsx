@@ -23,8 +23,6 @@ import {
   ChatMessage,
   GEMINI_MODELS,
   GeminiModelInfo,
-  setRuntimeGeminiApiKey,
-  getRuntimeGeminiApiKey,
 } from '../services/aiService';
 
 interface AIChatModalProps {
@@ -50,8 +48,6 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>('auto');
-  const [showKeyModal, setShowKeyModal] = useState(false);
-  const [customKeyInput, setCustomKeyInput] = useState('');
   const scrollViewRef = useRef<any>(null);
 
   const formatModelName = (modelId?: string) => {
@@ -91,23 +87,6 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
         modelUsed: 'gemini-2.0-flash',
       },
     ]);
-  };
-
-  const handleSaveApiKey = () => {
-    const trimmed = customKeyInput.trim();
-    setRuntimeGeminiApiKey(trimmed);
-    setShowKeyModal(false);
-    if (trimmed) {
-      Alert.alert(
-        'Gemini Key Saved',
-        'Your custom Gemini API key has been applied for live cloud requests!'
-      );
-    } else {
-      Alert.alert(
-        'Default Key Restored',
-        'Reset to project default configuration.'
-      );
-    }
   };
 
   const topPostTitle = posts.find(p => p.book?.title)?.book?.title;
@@ -211,16 +190,6 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
               <Text style={styles.title}>Goodreads AI</Text>
             </View>
             <View style={styles.headerActions}>
-              <TouchableOpacity
-                onPress={() => {
-                  setCustomKeyInput(getRuntimeGeminiApiKey() || '');
-                  setShowKeyModal(true);
-                }}
-                style={styles.keyBtn}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.keyBtnText}>🔑 Key</Text>
-              </TouchableOpacity>
               <TouchableOpacity onPress={handleClearChat} style={styles.clearChatBtn}>
                 <Text style={styles.clearChatText}>Clear</Text>
               </TouchableOpacity>
@@ -381,61 +350,6 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
             </TouchableOpacity>
           </View>
         </View>
-
-        {/* API Key Configuration Modal */}
-        {showKeyModal && (
-          <Modal
-            visible={showKeyModal}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setShowKeyModal(false)}
-          >
-            <View style={styles.keyModalBackdrop}>
-              <View style={styles.keyModalCard}>
-                <Text style={styles.keyModalTitle}>Google Gemini API Key</Text>
-                <Text style={styles.keyModalSubtitle}>
-                  For live cloud generation across all models, paste your free API key from Google AI Studio (starts with "AIzaSy..."):
-                </Text>
-                <TextInput
-                  style={styles.keyModalInput}
-                  placeholder="AIzaSy..."
-                  placeholderTextColor="#888"
-                  value={customKeyInput}
-                  onChangeText={setCustomKeyInput}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                <Text style={styles.keyModalHint}>
-                  Get your free key at: aistudio.google.com/app/apikey
-                </Text>
-                <View style={styles.keyModalActions}>
-                  <TouchableOpacity
-                    style={styles.keyModalSaveBtn}
-                    onPress={handleSaveApiKey}
-                  >
-                    <Text style={styles.keyModalSaveBtnText}>Save Key</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.keyModalResetBtn}
-                    onPress={() => {
-                      setCustomKeyInput('');
-                      setRuntimeGeminiApiKey('');
-                      setShowKeyModal(false);
-                    }}
-                  >
-                    <Text style={styles.keyModalResetBtnText}>Reset</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.keyModalCancelBtn}
-                    onPress={() => setShowKeyModal(false)}
-                  >
-                    <Text style={styles.keyModalCancelBtnText}>Cancel</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </Modal>
-        )}
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -725,86 +639,5 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: 'bold',
-  },
-  keyModalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  keyModalCard: {
-    width: '100%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  keyModalTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#382110',
-    marginBottom: 8,
-  },
-  keyModalSubtitle: {
-    fontSize: 12,
-    color: '#555',
-    lineHeight: 17,
-    marginBottom: 12,
-  },
-  keyModalInput: {
-    backgroundColor: '#F9F7F4',
-    borderWidth: 1,
-    borderColor: '#D5D2C9',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 13,
-    color: '#222',
-    marginBottom: 8,
-  },
-  keyModalHint: {
-    fontSize: 10,
-    color: '#00635D',
-    fontStyle: 'italic',
-    marginBottom: 16,
-  },
-  keyModalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 8,
-  },
-  keyModalSaveBtn: {
-    backgroundColor: '#00635D',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  keyModalSaveBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  keyModalResetBtn: {
-    backgroundColor: '#F0EFEA',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  keyModalResetBtnText: {
-    color: '#666',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  keyModalCancelBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  keyModalCancelBtnText: {
-    color: '#888',
-    fontSize: 12,
   },
 });

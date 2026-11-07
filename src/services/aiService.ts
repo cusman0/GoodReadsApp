@@ -696,8 +696,7 @@ function generateDynamicChatbotResponse(
   userQuery: string,
   posts: any[],
   history: ChatMessage[],
-  modelUsed: string,
-  isKeyBlocked: boolean = false
+  modelUsed: string
 ): { reply: string; citations: string[]; modelUsed: string } {
   const query = userQuery.toLowerCase().trim();
   const citations: string[] = [];
@@ -875,14 +874,8 @@ An unputdownable science-fiction triumph balancing high-stakes survival with wit
 3. **"Yellowface"** by R.F. Kuang (3.9★)
 A biting, razor-sharp literary satire tackling cultural appropriation, social media frenzy, and jealousy in the cutthroat publishing industry.`;
 
-  let finalReply = genericRecommendations;
-
-  if (isKeyBlocked) {
-    finalReply += `\n\n*(💡 Cloud note: Your current Firebase API key has API restrictions in Google Cloud Console blocking generativelanguage.googleapis.com. Tap '🔑 Key' in the header to paste a free Google AI Studio key, or enable Generative Language API in Google Cloud Console.)*`;
-  }
-
   return {
-    reply: finalReply,
+    reply: genericRecommendations,
     citations: [],
     modelUsed,
   };
@@ -960,15 +953,13 @@ Assistant:`;
     };
   } catch (error: any) {
     console.warn('AI Chatbot live cloud notice, activating dynamic literary engine:', error);
-    const isBlocked = error?.message?.includes('API_KEY_SERVICE_BLOCKED') || error?.message?.includes('403');
     const modelToDisplay = modelPreference === 'auto' ? 'gemini-2.0-flash' : modelPreference;
 
     return generateDynamicChatbotResponse(
       cleanQuery,
       posts,
       cleanHistory,
-      modelToDisplay,
-      isBlocked
+      modelToDisplay
     );
   }
 }
