@@ -91,6 +91,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         friendlyMessage = 'Password must be at least 6 characters.';
       } else if (err.code === 'auth/invalid-email') {
         friendlyMessage = 'The email address is invalid.';
+      } else if (err.code === 'auth/operation-not-allowed') {
+        friendlyMessage =
+          'Email/Password sign-in is disabled in your Firebase project. Please enable Email/Password in Firebase Console > Authentication > Sign-in method.';
       }
       setErrorMessage(friendlyMessage);
       Alert.alert('Authentication Error', friendlyMessage);
