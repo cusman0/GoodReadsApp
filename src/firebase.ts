@@ -182,7 +182,8 @@ export function mapFirebaseUserToProfile(
  */
 async function syncUserWithFirestore(
   firebaseUser: FirebaseUser,
-  preferredPhotoURL?: string | null
+  preferredPhotoURL?: string | null,
+  preferredName?: string | null
 ): Promise<any> {
   let firestoreData: any = null;
   try {
@@ -190,6 +191,7 @@ async function syncUserWithFirestore(
     const userDocSnap = await getDoc(userDocRef);
 
     const name =
+      (preferredName && preferredName.trim().length > 0 ? preferredName.trim() : null) ||
       firebaseUser.displayName ||
       formatDisplayNameFromEmail(firebaseUser.email);
 
@@ -280,8 +282,8 @@ export async function registerWithFirebase(
     console.warn('Update profile warning:', e);
   }
 
-  const firestoreData = await syncUserWithFirestore(user);
-  return mapFirebaseUserToProfile(user, firestoreData);
+  const firestoreData = await syncUserWithFirestore(user, avatar, name.trim());
+  return mapFirebaseUserToProfile(user, firestoreData, avatar);
 }
 
 /**

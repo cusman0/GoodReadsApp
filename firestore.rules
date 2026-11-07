@@ -11,6 +11,10 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
     function isReviewOwner(data) {
       return isSignedIn() && (
         (data.ownerId != null && request.auth.uid == data.ownerId) ||
@@ -27,14 +31,17 @@ service cloud.firestore {
     }
 
     // 1. Users collection
-    // Read by anyone; written only by that user. Reject writes where photoURL is longer than 150,000 characters.
+    // Read by anyone; written by the user or an administrator.
+    // Reject writes where photoURL is longer than 150,000 characters.
     match /users/{uid} {
       allow read: if true;
-      allow create, update: if isUser(uid)
-                            && (!('photoURL' in request.resource.data)
-                                || request.resource.data.photoURL == null
-                                || (request.resource.data.photoURL is string && request.resource.data.photoURL.size() <= 150000));
-      allow delete: if false;
+      allow create: if isUser(uid);
+      allow update: if (isUser(uid)
+                        && (!('photoURL' in request.resource.data)
+                            || request.resource.data.photoURL == null
+                            || (request.resource.data.photoURL is string && request.resource.data.photoURL.size() <= 150000)))
+                    || isAdmin();
+      allow delete: if isAdmin();
 
       // User Shelved Books subcollection
       match /shelvedBooks/{bookId} {
@@ -49,30 +56,30 @@ service cloud.firestore {
     }
 
     // 2. Reviews collection
-    // Read allowed if visibility is "public" or user is the owner
-    // Create, edit, delete allowed for the owner
+    // Read allowed if visibility is "public", user is owner, or administrator
+    // Create allowed for owner; Edit & Delete allowed for owner or administrator
     match /reviews/{reviewId} {
-      allow read: if resource.data.visibility == 'public' || isReviewOwner(resource.data);
+      allow read: if resource.data.visibility == 'public' || isReviewOwner(resource.data) || isAdmin();
       allow create: if isSignedIn()
                     && (request.auth.uid == request.resource.data.ownerId || request.auth.uid == request.resource.data.authorId);
-      allow update: if isReviewOwner(resource.data);
-      allow delete: if isReviewOwner(resource.data);
+      allow update: if isReviewOwner(resource.data) || isAdmin();
+      allow delete: if isReviewOwner(resource.data) || isAdmin();
 
       // 2a. Likes subcollection
       match /likes/{uid} {
-        allow read: if isParentReviewPublic(reviewId) || isParentReviewOwner(reviewId);
+        allow read: if isParentReviewPublic(reviewId) || isParentReviewOwner(reviewId) || isAdmin();
         allow create: if isUser(uid) && isParentReviewPublic(reviewId);
-        allow delete: if isUser(uid);
+        allow delete: if isUser(uid) || isAdmin();
         allow update: if false;
       }
 
       // 2b. Comments subcollection
       match /comments/{commentId} {
-        allow read: if isParentReviewPublic(reviewId) || isParentReviewOwner(reviewId);
+        allow read: if isParentReviewPublic(reviewId) || isParentReviewOwner(reviewId) || isAdmin();
         allow create: if isSignedIn()
                       && request.auth.uid == request.resource.data.userId
                       && isParentReviewPublic(reviewId);
-        allow delete: if isSignedIn() && (request.auth.uid == resource.data.userId || isParentReviewOwner(reviewId));
+        allow delete: if isSignedIn() && (request.auth.uid == resource.data.userId || isParentReviewOwner(reviewId) || isAdmin());
         allow update: if false;
       }
     }
@@ -81,7 +88,7 @@ service cloud.firestore {
     match /books/{bookId} {
       allow read: if true;
       allow create: if isSignedIn() && !exists(/databases/$(database)/documents/books/$(bookId));
-      allow update, delete: if false;
+      allow update, delete: if isAdmin();
     }
 
     // 4. Notifications collection
@@ -93,13 +100,23 @@ service cloud.firestore {
     }
 
     // 5. Admins collection
-    // Any signed-in user can read their own admin doc (to verify access).
-    // Any signed-in user can create their own admin doc (demo self-registration).
-    // No client-side updates or deletes — manage via Firebase Console.
+    // Any signed-in user can check their admin doc or self-register their account as admin
     match /admins/{uid} {
-      allow read: if isUser(uid);
+      allow read: if isSignedIn();
       allow create: if isUser(uid);
-      allow update, delete: if false;
+      allow update, delete: if isAdmin();
+    }
+
+    // 6. AI Insights (Admin Dashboard)
+    match /insights/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 7. AI Summaries
+    match /summaries/{document=**} {
+      allow read: if true;
+      allow write: if isSignedIn() || isAdmin();
     }
 
     // Backward-compatibility: posts collection
@@ -107,15 +124,16 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isSignedIn();
       allow update: if isReviewOwner(resource.data)
+                    || isAdmin()
                     || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'likedBy']))
                     || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentsCount']))
                     || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visibility']));
-      allow delete: if isReviewOwner(resource.data);
+      allow delete: if isReviewOwner(resource.data) || isAdmin();
 
       match /comments/{commentId} {
         allow read: if true;
         allow create: if isSignedIn() && request.auth.uid == request.resource.data.authorId;
-        allow delete: if isSignedIn() && (request.auth.uid == resource.data.authorId || isReviewOwner(get(/databases/$(database)/documents/posts/$(postId)).data));
+        allow delete: if isSignedIn() && (request.auth.uid == resource.data.authorId || isReviewOwner(get(/databases/$(database)/documents/posts/$(postId)).data) || isAdmin());
         allow update: if false;
       }
     }
