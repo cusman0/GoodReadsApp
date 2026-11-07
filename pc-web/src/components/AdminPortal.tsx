@@ -355,7 +355,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToApp }) => {
         '';
 
       if (geminiApiKey && postsList.length > 0) {
-        const candidateModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash-8b'];
+        const candidateModels = [
+          'gemini-3.8-flash',
+          'gemini-3.5-flash-lite',
+          'gemini-2.0-flash',
+          'gemini-1.5-flash',
+          'gemini-2.0-flash-lite',
+          'gemini-1.5-flash-8b',
+        ];
         const prompt = `You are an expert AI Literary Analyst for a Goodreads reading community.
 Analyze these real reader reviews:
 ${sampleReviews}

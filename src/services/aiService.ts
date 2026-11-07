@@ -47,6 +47,20 @@ export const GEMINI_MODELS: GeminiModelInfo[] = [
     description: 'Rotates models automatically to prevent traffic spikes and 429 quota exhaustion',
   },
   {
+    id: 'gemini-3.8-flash',
+    label: 'Gemini 3.8 Flash',
+    shortLabel: '3.8 Flash',
+    badge: '✦ GEMINI 3.8 FLASH',
+    description: 'Advanced next-generation frontier flash model with ultra-fast inference',
+  },
+  {
+    id: 'gemini-3.5-flash-lite',
+    label: 'Gemini 3.5 Flash-Lite',
+    shortLabel: '3.5 Flash-Lite',
+    badge: '✦ GEMINI 3.5 FLASH-LITE',
+    description: 'High-efficiency lightweight model engineered for maximum throughput',
+  },
+  {
     id: 'gemini-2.0-flash',
     label: 'Gemini 2.0 Flash',
     shortLabel: '2.0 Flash',
@@ -91,6 +105,8 @@ export const GEMINI_MODELS: GeminiModelInfo[] = [
 ];
 
 export const CANDIDATE_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.5-flash-lite',
   'gemini-2.0-flash',
   'gemini-2.0-flash-lite',
   'gemini-1.5-flash',
