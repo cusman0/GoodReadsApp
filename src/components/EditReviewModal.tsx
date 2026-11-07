@@ -36,12 +36,14 @@ export const EditReviewModal: React.FC<EditReviewModalProps> = ({
   const [visibility, setVisibility] = useState<'public' | 'private'>('private');
   const [saving, setSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiVariation, setAiVariation] = useState(0);
 
   useEffect(() => {
     if (activity) {
       setText(activity.reviewText || '');
       setRating(activity.rating || 5);
       setVisibility(activity.visibility || 'private');
+      setAiVariation(0);
     }
   }, [activity?.id]);
 
@@ -53,8 +55,10 @@ export const EditReviewModal: React.FC<EditReviewModalProps> = ({
       return;
     }
     setAiLoading(true);
+    const nextVar = aiVariation + 1;
+    setAiVariation(nextVar);
     try {
-      const suggestion = await assistReviewWriting(text, mode);
+      const suggestion = await assistReviewWriting(text, mode, { variation: nextVar });
       setText(suggestion);
     } catch (err: any) {
       Alert.alert('AI Helper Notice', err.message || 'Could not polish review.');

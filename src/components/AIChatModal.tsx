@@ -1,6 +1,7 @@
 /**
  * Goodreads AI Reading Assistant & Feed Chatbot Modal
  * Conversational multi-turn interface grounded in feed reviews with citations [P1], [P2].
+ * Supports real-time Gemini model selection, smart auto-rotation, and resilient failover.
  */
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -17,7 +18,12 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { askFeedChatbot, ChatMessage } from '../services/aiService';
+import {
+  askFeedChatbot,
+  ChatMessage,
+  GEMINI_MODELS,
+  GeminiModelInfo,
+} from '../services/aiService';
 
 interface AIChatModalProps {
   visible: boolean;
@@ -36,12 +42,20 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
       sender: 'ai',
       text: 'Hello! I am your Goodreads AI Reading Assistant. Ask me anything about books, authors, recommendations, or reviews in your community feed!',
       timestamp: 'Just now',
+      modelUsed: 'gemini-2.0-flash',
     },
   ]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>('auto');
   const scrollViewRef = useRef<any>(null);
 
+  const formatModelName = (modelId?: string) => {
+    if (!modelId || modelId === 'offline') return null;
+    const match = GEMINI_MODELS.find(m => m.id === modelId);
+    if (match) return match.shortLabel;
+    return modelId.replace(/^gemini-/, '').replace(/-/g, ' ').toUpperCase();
+  };
 
   const handleCitationPress = (cite: string) => {
     const num = parseInt(cite.replace(/\D/g, ''), 10);
@@ -70,6 +84,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
         sender: 'ai',
         text: 'Hello! I am your Goodreads AI Reading Assistant. Ask me anything about books, authors, recommendations, or reviews in your community feed!',
         timestamp: 'Just now',
+        modelUsed: 'gemini-2.0-flash',
       },
     ]);
   };
@@ -105,12 +120,11 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
     setLoading(true);
 
     try {
-      const response = await askFeedChatbot(text, posts, messages);
+      const response = await askFeedChatbot(text, posts, messages, selectedModel);
 
       const replyWords = response.reply.split(' ');
       const msgId = String(Date.now() + 1);
 
-      // Start word-by-word streaming animation
       let currentWordIndex = 1;
       const initialText = replyWords[0] || '';
 
@@ -120,6 +134,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
         text: initialText,
         citations: response.citations,
         timestamp: 'Just now',
+        modelUsed: response.modelUsed,
       };
 
       setMessages(prev => [...prev, streamingMsg]);
@@ -136,19 +151,22 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
           setMessages(prev =>
             prev.map(m => (m.id === msgId ? { ...m, text: progressiveText } : m))
           );
-        }, 22);
+        }, 20);
       }
     } catch (err: any) {
       const errorMsg: ChatMessage = {
         id: String(Date.now() + 1),
         sender: 'ai',
-        text: 'Goodreads AI is temporarily experiencing high reader demand or network traffic. Please wait a moment and try asking again.',
+        text: 'Goodreads AI is temporarily experiencing high reader demand. Please wait a moment and try asking again.',
         timestamp: 'Just now',
+        modelUsed: 'offline',
       };
       setMessages(prev => [...prev, errorMsg]);
       setLoading(false);
     }
   };
+
+  const activeModelObj = GEMINI_MODELS.find(m => m.id === selectedModel) || GEMINI_MODELS[0];
 
   return (
     <Modal
@@ -166,9 +184,9 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
           <View style={styles.header}>
             <View style={styles.titleRow}>
               <View style={styles.aiBadge}>
-                <Text style={styles.aiBadgeText}>✦ GEMINI</Text>
+                <Text style={styles.aiBadgeText}>{activeModelObj.badge}</Text>
               </View>
-              <Text style={styles.title}>Goodreads AI Assistant</Text>
+              <Text style={styles.title}>Goodreads AI</Text>
             </View>
             <View style={styles.headerActions}>
               <TouchableOpacity onPress={handleClearChat} style={styles.clearChatBtn}>
@@ -178,6 +196,40 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
                 <Text style={styles.closeBtnText}>✕</Text>
               </TouchableOpacity>
             </View>
+          </View>
+
+          {/* Model Selector Bar */}
+          <View style={styles.modelBarContainer}>
+            <Text style={styles.modelBarLabel}>MODEL:</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.modelScrollContent}
+            >
+              {GEMINI_MODELS.map((model: GeminiModelInfo) => {
+                const isSelected = selectedModel === model.id;
+                return (
+                  <TouchableOpacity
+                    key={model.id}
+                    style={[
+                      styles.modelChip,
+                      isSelected && styles.modelChipActive,
+                    ]}
+                    onPress={() => setSelectedModel(model.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.modelChipText,
+                        isSelected && styles.modelChipTextActive,
+                      ]}
+                    >
+                      {model.shortLabel}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
 
           {/* Quick Prompts Bar */}
@@ -229,6 +281,17 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
                     {item.text}
                   </Text>
 
+                  {/* Model indicator tag for AI responses */}
+                  {item.sender === 'ai' && item.modelUsed && item.modelUsed !== 'offline' && (
+                    <View style={styles.modelTagRow}>
+                      <View style={styles.modelTagBadge}>
+                        <Text style={styles.modelTagText}>
+                          ✦ {formatModelName(item.modelUsed)}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
                   {/* Citations Pill list */}
                   {item.citations && item.citations.length > 0 && (
                     <View style={styles.citationsRow}>
@@ -254,7 +317,9 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
                 <View style={[styles.messageBubble, styles.aiBubble]}>
                   <View style={styles.loadingRow}>
                     <ActivityIndicator size="small" color="#00635D" />
-                    <Text style={styles.loadingText}>Reading community reviews...</Text>
+                    <Text style={styles.loadingText}>
+                      Thinking with {formatModelName(selectedModel === 'auto' ? 'gemini-2.0-flash' : selectedModel)}...
+                    </Text>
                   </View>
                 </View>
               </View>
@@ -299,7 +364,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9F7F4',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    height: '82%',
+    height: '84%',
     paddingBottom: 20,
     borderWidth: 1,
     borderColor: '#E8E5DD',
@@ -309,7 +374,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#EAE5DB',
   },
@@ -366,10 +431,51 @@ const styles = StyleSheet.create({
     color: '#666',
     fontWeight: '700',
   },
+  modelBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3EFE7',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8E3D8',
+  },
+  modelBarLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#8A7A68',
+    marginRight: 8,
+    letterSpacing: 0.5,
+  },
+  modelScrollContent: {
+    gap: 6,
+    alignItems: 'center',
+  },
+  modelChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D8D3C8',
+  },
+  modelChipActive: {
+    backgroundColor: '#00635D',
+    borderColor: '#00635D',
+  },
+  modelChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#555555',
+  },
+  modelChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
   quickPromptsContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#F4F1EA',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: '#F8F6F1',
     borderBottomWidth: 1,
     borderBottomColor: '#E8E5DD',
   },
@@ -378,9 +484,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D8D5CD',
     borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    marginRight: 7,
   },
   quickPromptText: {
     fontSize: 11,
@@ -404,7 +510,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   messageBubble: {
-    maxWidth: '84%',
+    maxWidth: '85%',
     borderRadius: 12,
     padding: 12,
   },
@@ -427,6 +533,25 @@ const styles = StyleSheet.create({
   },
   aiText: {
     color: '#333333',
+  },
+  modelTagRow: {
+    flexDirection: 'row',
+    marginTop: 6,
+    alignItems: 'center',
+  },
+  modelTagBadge: {
+    backgroundColor: '#F0F4F2',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#CFE0D9',
+  },
+  modelTagText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#00635D',
+    letterSpacing: 0.3,
   },
   citationsRow: {
     flexDirection: 'row',

@@ -355,9 +355,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToApp }) => {
         '';
 
       if (geminiApiKey && postsList.length > 0) {
-        try {
-          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
-          const prompt = `You are an expert AI Literary Analyst for a Goodreads reading community.
+        const candidateModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash-8b'];
+        const prompt = `You are an expert AI Literary Analyst for a Goodreads reading community.
 Analyze these real reader reviews:
 ${sampleReviews}
 
@@ -373,32 +372,39 @@ Respond ONLY with valid JSON (no markdown formatting, no code fences):
   "summary": "..."
 }`;
 
-          const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { temperature: 0.3, maxOutputTokens: 350 },
-            }),
-          });
+        for (const modelName of candidateModels) {
+          try {
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+            const res = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.3, maxOutputTokens: 350 },
+              }),
+            });
 
-          if (res.ok) {
-            const data = await res.json();
-            const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            const cleaned = rawText.replace(/```json\n?|```/g, '').trim();
-            const parsed = JSON.parse(cleaned);
-            if (Array.isArray(parsed.topics) && parsed.topics.length > 0) {
-              dynamicTopics = parsed.topics;
+            if (res.ok) {
+              const data = await res.json();
+              const candidate = data.candidates?.[0];
+              const parts = candidate?.content?.parts || [];
+              const rawText = parts.filter((p: any) => !p.thought).map((p: any) => p.text || '').join('').trim();
+              const cleaned = rawText.replace(/```json\n?|```/g, '').trim();
+              const parsed = JSON.parse(cleaned);
+              if (Array.isArray(parsed.topics) && parsed.topics.length > 0) {
+                dynamicTopics = parsed.topics;
+              }
+              if (parsed.mood && ['positive', 'neutral', 'negative'].includes(parsed.mood.toLowerCase())) {
+                dynamicMood = parsed.mood.toLowerCase();
+              }
+              if (parsed.summary) {
+                dynamicSummary = parsed.summary;
+              }
+              break; // Success with current model!
             }
-            if (parsed.mood && ['positive', 'neutral', 'negative'].includes(parsed.mood.toLowerCase())) {
-              dynamicMood = parsed.mood.toLowerCase();
-            }
-            if (parsed.summary) {
-              dynamicSummary = parsed.summary;
-            }
+          } catch (apiErr) {
+            console.warn(`Gemini model ${modelName} notice, trying next candidate:`, apiErr);
           }
-        } catch (apiErr) {
-          console.warn('Gemini live generation notice, using dynamic extraction fallback:', apiErr);
         }
       }
 

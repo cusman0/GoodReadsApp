@@ -70,9 +70,12 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
   const [submittingReview, setSubmittingReview] = useState(false);
   const [aiHelperLoading, setAiHelperLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  const [aiHelperVariation, setAiHelperVariation] = useState(0);
+  const [lastAiHelperMode, setLastAiHelperMode] = useState<'improve' | 'shorten' | 'translate'>('improve');
   const [showAIConsensus, setShowAIConsensus] = useState(false);
   const [bookConsensus, setBookConsensus] = useState<string | null>(null);
   const [bookConsensusLoading, setBookConsensusLoading] = useState(false);
+  const [consensusRefreshCount, setConsensusRefreshCount] = useState(0);
 
   useEffect(() => {
     if (book) {
@@ -81,28 +84,29 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
       setPagesRead(book.progressPages ? String(book.progressPages) : '0');
       setReviewText('');
       setAiSuggestion(null);
+      setAiHelperVariation(0);
       setShowAIConsensus(false);
       setBookConsensus(null);
+      setConsensusRefreshCount(0);
       setShowShelfPicker(false);
     }
   }, [book?.id]);
 
-  const handleToggleConsensus = async () => {
-    if (showAIConsensus) {
+  const handleToggleConsensus = async (forceRefresh: boolean = false) => {
+    if (showAIConsensus && !forceRefresh) {
       setShowAIConsensus(false);
       return;
     }
     setShowAIConsensus(true);
-    if (!bookConsensus && book) {
+    if ((forceRefresh || !bookConsensus) && book) {
       setBookConsensusLoading(true);
+      const nextCount = forceRefresh ? consensusRefreshCount + 1 : consensusRefreshCount;
+      setConsensusRefreshCount(nextCount);
       try {
-        const text = await getBookConsensusSummary(book);
+        const text = await getBookConsensusSummary(book, { forceRefresh: true, refreshCount: nextCount });
         setBookConsensus(text);
       } catch (err: any) {
         Alert.alert('Gemini AI Notice', err.message || 'Could not generate summary.');
-        setBookConsensus(
-          `Readers rate "${book.title}" ${book.rating}★ (${book.ratingCount.toLocaleString()} ratings). Genres: ${book.genres.join(', ')}.`
-        );
       } finally {
         setBookConsensusLoading(false);
       }
@@ -119,8 +123,14 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
     }
 
     setAiHelperLoading(true);
+    setLastAiHelperMode(mode);
+    const nextVariation = aiHelperVariation + 1;
+    setAiHelperVariation(nextVariation);
+
     try {
-      const suggestion = await assistReviewWriting(reviewText, mode);
+      const suggestion = await assistReviewWriting(reviewText, mode, {
+        variation: nextVariation,
+      });
       setAiSuggestion(suggestion);
     } catch (err: any) {
       Alert.alert('AI Helper Notice', err.message || 'Could not generate suggestion.');
@@ -444,6 +454,13 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
                       <Text style={styles.applySuggestionBtnText}>Use Suggestion</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
+                      style={styles.retrySuggestionBtn}
+                      onPress={() => handleAIWritingAssist(lastAiHelperMode)}
+                      disabled={aiHelperLoading}
+                    >
+                      <Text style={styles.retrySuggestionBtnText}>↻ Try Another</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                       style={styles.discardSuggestionBtn}
                       onPress={() => setAiSuggestion(null)}
                     >
@@ -494,7 +511,7 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
             {/* AI Reader Consensus Toggle Button */}
             <TouchableOpacity
               style={styles.aiConsensusToggleBtn}
-              onPress={handleToggleConsensus}
+              onPress={() => handleToggleConsensus(false)}
               activeOpacity={0.8}
             >
               <Text style={styles.aiConsensusToggleText}>
@@ -504,14 +521,24 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
 
             {showAIConsensus && (
               <View style={styles.aiConsensusCard}>
-                <View style={styles.aiConsensusBadge}>
-                  <Text style={styles.aiConsensusBadgeText}>✦ GEMINI CONSENSUS</Text>
+                <View style={styles.aiConsensusHeaderRow}>
+                  <View style={styles.aiConsensusBadge}>
+                    <Text style={styles.aiConsensusBadgeText}>✦ GEMINI CONSENSUS</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.aiConsensusRefreshBtn}
+                    onPress={() => handleToggleConsensus(true)}
+                    disabled={bookConsensusLoading}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.aiConsensusRefreshBtnText}>↻ Refresh Perspective</Text>
+                  </TouchableOpacity>
                 </View>
                 {bookConsensusLoading ? (
                   <View style={{ paddingVertical: 12, alignItems: 'center' }}>
                     <ActivityIndicator size="small" color="#00635D" />
                     <Text style={{ fontSize: 11, color: '#666', marginTop: 6, fontStyle: 'italic' }}>
-                      Analyzing reader sentiment with Gemini AI...
+                      Synthesizing new reader consensus angle with Gemini AI...
                     </Text>
                   </View>
                 ) : (
@@ -1062,6 +1089,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  retrySuggestionBtn: {
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  retrySuggestionBtnText: {
+    color: '#1B5E20',
+    fontSize: 11,
+    fontWeight: '700',
+  },
   discardSuggestionBtn: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
@@ -1098,13 +1138,31 @@ const styles = StyleSheet.create({
     borderColor: '#A5D6A7',
     marginBottom: 14,
   },
+  aiConsensusHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  aiConsensusRefreshBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+  },
+  aiConsensusRefreshBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#1B5E20',
+  },
   aiConsensusBadge: {
     alignSelf: 'flex-start',
     backgroundColor: '#E8F5E9',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
-    marginBottom: 6,
   },
   aiConsensusBadgeText: {
     fontSize: 9,
