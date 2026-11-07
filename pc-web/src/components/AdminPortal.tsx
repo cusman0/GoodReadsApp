@@ -885,7 +885,13 @@ Respond ONLY with valid JSON (no markdown formatting, no code fences):
                             </div>
                           </div>
                         </td>
-                        <td className="py-3 px-4 text-gray-600">{reader.email || '—'}</td>
+                        <td className="py-3 px-4 text-gray-600">
+                          {reader.email ? (
+                            <span>{reader.email}</span>
+                          ) : (
+                            <span className="text-gray-400 italic text-[11px]">No email registered</span>
+                          )}
+                        </td>
                         <td className="py-3 px-4 font-medium">
                           {reader.booksReadCount || reader.readingChallengeProgress || 0} books
                         </td>

@@ -442,6 +442,29 @@ export function subscribeToAuthState(
         }
       }
 
+      // Ensure user document exists and has email synced from Auth
+      if (!firestoreData || (!firestoreData.email && firebaseUser.email)) {
+        try {
+          const autoSync: any = {
+            email: firebaseUser.email || '',
+            updatedAt: serverTimestamp(),
+          };
+          if (!firestoreData) {
+            autoSync.displayName = firebaseUser.displayName || 'Reader';
+            autoSync.photoURL = realPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(firebaseUser.displayName || 'Reader')}&background=00635D&color=fff&size=160`;
+            autoSync.disabled = false;
+            autoSync.createdAt = serverTimestamp();
+            autoSync.booksReadCount = 0;
+            autoSync.readingChallengeGoal = 0;
+            autoSync.readingChallengeProgress = 0;
+          }
+          await setDoc(userDocRef, autoSync, { merge: true });
+          firestoreData = { ...(firestoreData || {}), ...autoSync };
+        } catch (syncErr) {
+          console.warn('Auto-sync user doc notice:', syncErr);
+        }
+      }
+
       if (realPhoto) {
         if (
           !firebaseUser.photoURL ||
