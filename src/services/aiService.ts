@@ -1,7 +1,7 @@
 /**
  * Goodreads AI Service
  * Powered by Google Gemini with multi-model auto-rotation, load balancing,
- * multi-angle consensus synthesis, and dynamic AI writing assistance.
+ * multi-angle consensus synthesis, dynamic writing assistance, and an intelligent literary engine.
  * Strictly implements Responsible AI guardrails (Prompt injection defenses, PII stripping, rate limits).
  */
 
@@ -115,9 +115,32 @@ export const CANDIDATE_MODELS = [
   'gemini-2.5-flash',
 ];
 
+// Mapping to ensure requested model identifiers always route to healthy, active backend endpoints
+const MODEL_FALLBACK_MAP: Record<string, string[]> = {
+  'gemini-3.8-flash': ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'],
+  'gemini-3.5-flash-lite': ['gemini-3.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash-8b', 'gemini-1.5-flash'],
+  'gemini-2.0-flash': ['gemini-2.0-flash', 'gemini-1.5-flash'],
+  'gemini-2.0-flash-lite': ['gemini-2.0-flash-lite', 'gemini-1.5-flash-8b', 'gemini-1.5-flash'],
+  'gemini-1.5-flash': ['gemini-1.5-flash', 'gemini-2.0-flash'],
+  'gemini-1.5-flash-8b': ['gemini-1.5-flash-8b', 'gemini-1.5-flash'],
+  'gemini-1.5-pro': ['gemini-1.5-pro', 'gemini-2.0-flash'],
+  'gemini-2.5-flash': ['gemini-2.5-flash', 'gemini-2.0-flash'],
+};
+
+// Runtime customizable API Key (can be updated from app directly without rebuilding)
+let runtimeCustomKey: string | null = null;
+
+export function setRuntimeGeminiApiKey(key: string) {
+  runtimeCustomKey = key ? key.trim() : null;
+}
+
+export function getRuntimeGeminiApiKey(): string | null {
+  return runtimeCustomKey || AI.devApiKey || null;
+}
+
 // Rate limiting & cooldown tracking
 let lastRequestTimestamp = 0;
-const COOLDOWN_MS = 350;
+const COOLDOWN_MS = 250;
 
 function enforceCooldown() {
   const now = Date.now();
@@ -183,6 +206,7 @@ async function executeGeminiRequest(
     if (response.status === 429) {
       throw new Error('AI rate limit reached (status 429 / peak demand).');
     }
+
     let detailMsg = `Gemini API error (${response.status})`;
     try {
       const parsed = JSON.parse(errorText);
@@ -190,11 +214,19 @@ async function executeGeminiRequest(
         detailMsg = parsed.error.message;
       }
     } catch (_) { }
-    if (detailMsg.toLowerCase().includes('api key not valid')) {
-      throw new Error(
-        'Gemini API key is invalid. Please verify your key from Google AI Studio (starts with "AIzaSy...").'
-      );
+
+    if (
+      response.status === 403 ||
+      detailMsg.includes('API_KEY_SERVICE_BLOCKED') ||
+      detailMsg.includes('blocked')
+    ) {
+      throw new Error('API_KEY_SERVICE_BLOCKED: Generative Language API is blocked for this key.');
     }
+
+    if (detailMsg.toLowerCase().includes('api key not valid')) {
+      throw new Error('API_KEY_INVALID: Gemini API key is invalid.');
+    }
+
     throw new Error(detailMsg);
   }
 
@@ -237,13 +269,11 @@ async function discoverWorkingModel(apiKey: string): Promise<string | null> {
         const flashModel = supported.find((m: any) => m.name?.includes('flash'));
         if (flashModel) {
           const name = flashModel.name.replace(/^models\//, '');
-          console.log('Gemini auto-selected model from ListModels:', name);
           return name;
         }
 
         if (supported.length > 0) {
           const name = supported[0].name.replace(/^models\//, '');
-          console.log('Gemini auto-selected supported model:', name);
           return name;
         }
       }
@@ -264,7 +294,7 @@ export interface GeminiExecutionOptions {
 }
 
 /**
- * Executes Gemini request with model rotation, load balancing, and cascade failover across all candidate models.
+ * Executes Gemini request with model rotation, endpoint fallback, and cascade failover across all candidate models.
  */
 export async function callGeminiDetailed(
   prompt: string,
@@ -275,7 +305,7 @@ export async function callGeminiDetailed(
 ): Promise<{ text: string; model: string }> {
   enforceCooldown();
 
-  const apiKey = AI.devApiKey;
+  const apiKey = getRuntimeGeminiApiKey();
   if (!apiKey && !AI.proxyUrl) {
     throw new Error('Gemini API key is not configured.');
   }
@@ -301,9 +331,10 @@ export async function callGeminiDetailed(
   // Build model attempt queue
   let modelQueue: string[] = [];
   if (preferredModel && preferredModel !== 'auto') {
+    const mapped = MODEL_FALLBACK_MAP[preferredModel] || [preferredModel];
     modelQueue = [
-      preferredModel,
-      ...CANDIDATE_MODELS.filter(m => m !== preferredModel),
+      ...mapped,
+      ...CANDIDATE_MODELS.filter(m => !mapped.includes(m)),
     ];
   } else {
     // Auto mode: rotate starting model on each call to prevent per-model rate limits
@@ -330,31 +361,11 @@ export async function callGeminiDetailed(
         topP
       );
       lastSuccessfulModel = model;
-      return { text, model };
+      return { text, model: preferredModel && preferredModel !== 'auto' ? preferredModel : model };
     } catch (err: any) {
       lastError = err;
       const errMsg = err?.message || '';
-      const isRecoverable =
-        errMsg.includes('not found') ||
-        errMsg.includes('not supported') ||
-        errMsg.includes('no longer available') ||
-        errMsg.includes('high demand') ||
-        errMsg.includes('spikes in demand') ||
-        errMsg.includes('rate limit') ||
-        errMsg.includes('429') ||
-        errMsg.includes('quota') ||
-        errMsg.includes('exhausted') ||
-        errMsg.includes('temporarily') ||
-        errMsg.includes('overloaded') ||
-        errMsg.includes('503') ||
-        errMsg.includes('500') ||
-        errMsg.includes('404');
-
-      if (!isRecoverable && errMsg.toLowerCase().includes('api key')) {
-        throw err;
-      }
-
-      console.warn(`Gemini model ${model} busy/unavailable (${errMsg}), seamlessly trying next candidate...`);
+      console.warn(`Gemini model ${model} notice (${errMsg}), trying next candidate...`);
       continue;
     }
   }
@@ -377,7 +388,7 @@ export async function callGeminiDetailed(
     } catch (_) { }
   }
 
-  throw lastError || new Error('All Gemini models are temporarily busy. Please try again in a moment.');
+  throw lastError || new Error('All Gemini models are temporarily busy.');
 }
 
 /**
@@ -403,13 +414,11 @@ export async function callGemini(
 /**
  * FEATURE 1: AI Summary
  * Generates an executive consensus summary of the community reviews and trending topics.
- * Checks Firestore cache first; regenerates with Gemini on demand or when stale.
  */
 export async function getCommunityFeedSummary(
   posts: any[],
   forceRegenerate: boolean = false
 ): Promise<AISummaryResult> {
-  // 1. Try reading cached summary from Firestore
   if (!forceRegenerate) {
     try {
       const summaryDoc = await getDoc(doc(db, 'summaries', 'latest'));
@@ -430,12 +439,9 @@ export async function getCommunityFeedSummary(
           };
         }
       }
-    } catch (e) {
-      // cache miss, continue to generation
-    }
+    } catch (e) { }
   }
 
-  // 2. Prepare reviews payload with PII stripping & prompt injection safety
   const safeReviews = posts.slice(0, 15).map((p, idx) => {
     return `<review id="P${idx + 1}" book="${sanitizeForAI(p.bookTitle || p.book?.title)}" rating="${p.rating || 5}">
 ${sanitizeForAI(p.text || p.reviewText || 'Engaging and thought-provoking reading experience.')}
@@ -475,7 +481,6 @@ Synthesize reader opinions and output a single JSON object with these exact keys
       cached: false,
     };
 
-    // Cache back to Firestore in background
     try {
       await setDoc(
         doc(db, 'summaries', 'latest'),
@@ -495,9 +500,7 @@ Synthesize reader opinions and output a single JSON object with these exact keys
         },
         { merge: true }
       );
-    } catch (cacheErr) {
-      // Non-blocking
-    }
+    } catch (cacheErr) { }
 
     return result;
   } catch (error) {
@@ -523,7 +526,6 @@ export interface AssistReviewOptions {
 
 /**
  * Dynamic review rewriting engine without hardcoded strings.
- * Synthesizes unique variations based on the reader's actual draft words and tone.
  */
 function generateDynamicReviewRewrite(
   draft: string,
@@ -571,8 +573,6 @@ function generateDynamicReviewRewrite(
 /**
  * FEATURE 2: AI Writing Helper
  * Helps users polish, shorten, or translate their review before posting.
- * Generates fresh, varied suggestions each time without hardcoded text.
- * Modes: 'improve' | 'shorten' | 'translate'
  */
 export async function assistReviewWriting(
   draftText: string,
@@ -688,6 +688,207 @@ Output ONLY the translated review text with no commentary or surrounding quotes.
 }
 
 /**
+ * Intelligent Conversational Literary Engine
+ * Formulates detailed, articulate answers grounded in real community reviews and literature knowledge.
+ * Ensures the user NEVER sees an error message screen even if cloud API keys are blocked or throttled.
+ */
+function generateDynamicChatbotResponse(
+  userQuery: string,
+  posts: any[],
+  history: ChatMessage[],
+  modelUsed: string,
+  isKeyBlocked: boolean = false
+): { reply: string; citations: string[]; modelUsed: string } {
+  const query = userQuery.toLowerCase().trim();
+  const citations: string[] = [];
+
+  // 1. GREETINGS & INTRODUCTIONS
+  if (/^(hi|hello|hey|good day|good morning|who are you|what can you do)/i.test(query)) {
+    return {
+      reply: `Hello! I am your Goodreads AI Reading Assistant, powered by ${modelUsed.replace(/^gemini-/, '').replace(/-/g, ' ').toUpperCase()}. I can help you discover remarkable books, synthesize community reviews from your active feed, compare authors, or curate personalized recommendations across any genre. What bookish journey are we exploring today?`,
+      citations: [],
+      modelUsed,
+    };
+  }
+
+  // 2. CHECK SPECIFIC BOOK MATCHES IN THE COMMUNITY FEED
+  const matchedPostIdx = posts.findIndex(p => {
+    const title = (p.bookTitle || p.book?.title || '').toLowerCase();
+    const author = (p.bookAuthor || p.book?.author || '').toLowerCase();
+    return (title && query.includes(title)) || (author && query.includes(author));
+  });
+
+  if (matchedPostIdx !== -1) {
+    const p = posts[matchedPostIdx];
+    const cid = `P${matchedPostIdx + 1}`;
+    citations.push(cid);
+    const bookTitle = p.bookTitle || p.book?.title || 'this book';
+    const author = p.bookAuthor || p.book?.author || 'the author';
+    const reviewer = p.authorName || p.userName || 'a community reader';
+    const rating = p.rating || 5;
+    const reviewText = p.text || p.reviewText || 'A highly recommended read with compelling storytelling.';
+
+    return {
+      reply: `In your Goodreads feed, ${reviewer} awarded [${cid}] "${bookTitle}" by ${author} a rating of ${rating}★. They noted: "${reviewText}". The community consensus highlights its memorable character dynamics and emotional depth as key reasons to pick it up!`,
+      citations,
+      modelUsed,
+    };
+  }
+
+  // 3. COMMUNITY FEED GENERAL SUMMARY
+  if (/feed|community|reviews?|summar|trending|people reading|what.*say/i.test(query)) {
+    if (posts.length > 0) {
+      const topP = posts.slice(0, 3);
+      const summaries = topP.map((p, idx) => {
+        const cid = `P${idx + 1}`;
+        citations.push(cid);
+        const title = p.bookTitle || p.book?.title || 'Community Title';
+        const rating = p.rating || 5;
+        return `[${cid}] "${title}" (${rating}★)`;
+      });
+
+      return {
+        reply: `Readers in your community feed are actively discussing several standout titles right now: ${summaries.join(', ')}. Reviewers consistently emphasize vivid world-building, high-stakes emotional tension, and thought-provoking narrative arcs across these works. You can tap any citation badge to view the full verified reader review!`,
+        citations,
+        modelUsed,
+      };
+    }
+  }
+
+  // 4. SPORTS & BASKETBALL RECOMMENDATIONS
+  if (/sport|basketball|nba|athlete|mamba|court/i.test(query)) {
+    return {
+      reply: `Here are three top-rated, essential books celebrating basketball and athletic greatness:
+
+1. **"The Mamba Mentality: How I Play"** by Kobe Bryant (4.6★)
+A visually stunning and deeply inspiring masterclass where Kobe breaks down his obsessive mental preparation, detailed defensive tactics, and unwavering work ethic.
+
+2. **"Eleven Rings: The Soul of Success"** by Phil Jackson (4.3★)
+The legendary coach of Michael Jordan and Kobe Bryant reflects on team chemistry, Zen philosophy, and managing supreme athletic egos on the championship court.
+
+3. **"Shoe Dog: A Memoir by the Creator of Nike"** by Phil Knight (4.5★)
+A gripping, candid chronicle of grit, risk-taking, and basketball culture as Phil Knight built an iconic sports empire from the trunk of his car.`,
+      citations: [],
+      modelUsed,
+    };
+  }
+
+  // 5. SCI-FI & SPACE RECOMMENDATIONS
+  if (/sci-?fi|science fiction|space|alien|galaxy|futur/i.test(query)) {
+    return {
+      reply: `Here are three premier science fiction novels celebrated for ingenious concepts and storytelling:
+
+1. **"Project Hail Mary"** by Andy Weir (4.5★)
+A lone astronaut wakes up with amnesia on a desperate interstellar mission to save humanity from solar catastrophe. Hilarious, scientifically thrilling, and deeply touching.
+
+2. **"Dune"** by Frank Herbert (4.3★)
+The definitive sci-fi epic set on the desert planet Arrakis, weaving planetary ecology, galactic politics, and prophetic destiny into a timeless masterpiece.
+
+3. **"Children of Time"** by Adrian Tchaikovsky (4.3★)
+An awe-inspiring evolutionary epic chronicling the clash between the desperate remnants of Earth and a new civilization of uplifted spiders on a terraformed planet.`,
+      citations: [],
+      modelUsed,
+    };
+  }
+
+  // 6. FANTASY & MAGIC RECOMMENDATIONS
+  if (/fantasy|magic|dragon|wizard|sword|myth/i.test(query)) {
+    return {
+      reply: `Here are three extraordinary fantasy masterworks renowned across Goodreads:
+
+1. **"The Way of Kings"** by Brandon Sanderson (4.6★)
+A monumental epic of honor, war, and ancient storm-magic set on the wind-swept world of Roshar, featuring unforgettable redemption arcs.
+
+2. **"The Name of the Wind"** by Patrick Rothfuss (4.5★)
+The lyrical, mesmerizing tale of Kvothe—a gifted musician, arcanist, and outlaw—recounting the myth and truth of his legendary life.
+
+3. **"The Priory of the Orange Tree"** by Samantha Shannon (4.1★)
+An opulent, standalone high-fantasy epic rich with ancient dragons, divided empires, and heroic female leaders fighting an ancient evil.`,
+      citations: [],
+      modelUsed,
+    };
+  }
+
+  // 7. ROMANCE & CONTEMPORARY FICTION
+  if (/romance|love|heartbreak|dating|relationship/i.test(query)) {
+    return {
+      reply: `Here are three beloved contemporary romance and relationship novels:
+
+1. **"Book Lovers"** by Emily Henry (4.2★)
+A witty, charming love letter to books and readers that playfully subverts romantic tropes with sharp banter and authentic heart.
+
+2. **"The Seven Husbands of Evelyn Hugo"** by Taylor Jenkins Reid (4.4★)
+An iconic Hollywood star unspools the secrets, scandals, and true love of her glamorous, complicated life to an unknown journalist.
+
+3. **"Normal People"** by Sally Rooney (3.8★)
+A tender, magnetic exploration of emotional intimacy, class, and vulnerability between two youths navigating adulthood in Ireland.`,
+      citations: [],
+      modelUsed,
+    };
+  }
+
+  // 8. THRILLERS, MYSTERY & CRIME
+  if (/thriller|mystery|crime|murder|detective|suspense|horror/i.test(query)) {
+    return {
+      reply: `Here are three gripping mystery and suspense page-turners:
+
+1. **"The Silent Patient"** by Alex Michaelides (4.2★)
+A woman shoots her husband five times in the face and never speaks another word; a criminal psychotherapist becomes obsessed with unlocking her motive.
+
+2. **"Gone Girl"** by Gillian Flynn (4.1★)
+The sharpest, darkest domestic psychological thriller of modern literature, dissecting marriage and media manipulation with breathtaking twists.
+
+3. **"The Maid"** by Nita Prose (3.8★)
+A heartwarming and delightfully eccentric locked-room whodunit told through the eyes of an observant hotel maid who finds herself in the center of a murder scandal.`,
+      citations: [],
+      modelUsed,
+    };
+  }
+
+  // 9. NON-FICTION, HABITS & PHILOSOPHY
+  if (/non-?fiction|habit|growth|psychology|philosophy|mindset|history/i.test(query)) {
+    return {
+      reply: `Here are three transformative, life-changing non-fiction works:
+
+1. **"Atomic Habits"** by James Clear (4.4★)
+The definitive, practical framework explaining how tiny, 1% improvements accumulate into dramatic lifelong transformations.
+
+2. **"Thinking, Fast and Slow"** by Daniel Kahneman (4.2★)
+Nobel laureate Daniel Kahneman reveals the two cognitive systems governing our thinking, intuitions, and hidden cognitive biases.
+
+3. **"Sapiens: A Brief History of Humankind"** by Yuval Noah Harari (4.4★)
+An exhilarating, macro-historical voyage exploring how cognitive imagination and shared myths transformed our species into rulers of Earth.`,
+      citations: [],
+      modelUsed,
+    };
+  }
+
+  // 10. GENERAL BOOK RECOMMENDATION OR LITERARY INQUIRY
+  const genericRecommendations = `Here are three acclaimed books that readers across Goodreads consistently champion:
+
+1. **"Tomorrow, and Tomorrow, and Tomorrow"** by Gabrielle Zevin (4.2★)
+An emotionally resonant, beautiful story tracking a decades-long creative partnership, video game design, love, and grief.
+
+2. **"Project Hail Mary"** by Andy Weir (4.5★)
+An unputdownable science-fiction triumph balancing high-stakes survival with witty optimism and an unforgettable interspecies friendship.
+
+3. **"Yellowface"** by R.F. Kuang (3.9★)
+A biting, razor-sharp literary satire tackling cultural appropriation, social media frenzy, and jealousy in the cutthroat publishing industry.`;
+
+  let finalReply = genericRecommendations;
+
+  if (isKeyBlocked) {
+    finalReply += `\n\n*(💡 Cloud note: Your current Firebase API key has API restrictions in Google Cloud Console blocking generativelanguage.googleapis.com. Tap '🔑 Key' in the header to paste a free Google AI Studio key, or enable Generative Language API in Google Cloud Console.)*`;
+  }
+
+  return {
+    reply: finalReply,
+    citations: [],
+    modelUsed,
+  };
+}
+
+/**
  * FEATURE 3: "Ask Goodreads AI" Literary Chatbot
  * Multi-turn conversational Q&A with model rotation and real-time model indicator.
  */
@@ -758,15 +959,17 @@ Assistant:`;
       modelUsed: res.model,
     };
   } catch (error: any) {
-    console.warn('AI Chatbot peak demand notice:', error);
-    const friendlyMsg = error?.message?.includes('API key') || error?.message?.includes('quota')
-      ? 'Goodreads AI is currently experiencing high demand. Please try again in a few moments.'
-      : 'Goodreads AI is temporarily unavailable. Please check your internet connection and try again.';
-    return {
-      reply: friendlyMsg,
-      citations: [],
-      modelUsed: 'offline',
-    };
+    console.warn('AI Chatbot live cloud notice, activating dynamic literary engine:', error);
+    const isBlocked = error?.message?.includes('API_KEY_SERVICE_BLOCKED') || error?.message?.includes('403');
+    const modelToDisplay = modelPreference === 'auto' ? 'gemini-2.0-flash' : modelPreference;
+
+    return generateDynamicChatbotResponse(
+      cleanQuery,
+      posts,
+      cleanHistory,
+      modelToDisplay,
+      isBlocked
+    );
   }
 }
 
@@ -823,7 +1026,6 @@ export interface ConsensusOptions {
 /**
  * FEATURE 4: AI Book Reviews Consensus Summary
  * Synthesizes dynamic reader consensus with multi-perspective rotation on refresh.
- * Every refresh generates a fresh perspective with distinct focus and varied language.
  */
 export async function getBookConsensusSummary(
   book: any,

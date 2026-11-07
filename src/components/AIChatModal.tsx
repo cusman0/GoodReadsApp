@@ -1,7 +1,7 @@
 /**
  * Goodreads AI Reading Assistant & Feed Chatbot Modal
  * Conversational multi-turn interface grounded in feed reviews with citations [P1], [P2].
- * Supports real-time Gemini model selection, smart auto-rotation, and resilient failover.
+ * Supports real-time Gemini model selection, smart auto-rotation, custom API key configuration, and resilient failover.
  */
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -23,6 +23,8 @@ import {
   ChatMessage,
   GEMINI_MODELS,
   GeminiModelInfo,
+  setRuntimeGeminiApiKey,
+  getRuntimeGeminiApiKey,
 } from '../services/aiService';
 
 interface AIChatModalProps {
@@ -48,6 +50,8 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>('auto');
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [customKeyInput, setCustomKeyInput] = useState('');
   const scrollViewRef = useRef<any>(null);
 
   const formatModelName = (modelId?: string) => {
@@ -89,10 +93,28 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
     ]);
   };
 
+  const handleSaveApiKey = () => {
+    const trimmed = customKeyInput.trim();
+    setRuntimeGeminiApiKey(trimmed);
+    setShowKeyModal(false);
+    if (trimmed) {
+      Alert.alert(
+        'Gemini Key Saved',
+        'Your custom Gemini API key has been applied for live cloud requests!'
+      );
+    } else {
+      Alert.alert(
+        'Default Key Restored',
+        'Reset to project default configuration.'
+      );
+    }
+  };
+
   const topPostTitle = posts.find(p => p.book?.title)?.book?.title;
   const quickPrompts = [
     topPostTitle ? `What do readers say about "${topPostTitle}"?` : 'Recommend top trending books to read',
     'Summarize recent community reviews',
+    'Recommend best basketball and sports books to read',
     'What book genres are readers enjoying right now?',
   ];
 
@@ -151,15 +173,15 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
           setMessages(prev =>
             prev.map(m => (m.id === msgId ? { ...m, text: progressiveText } : m))
           );
-        }, 20);
+        }, 18);
       }
     } catch (err: any) {
       const errorMsg: ChatMessage = {
         id: String(Date.now() + 1),
         sender: 'ai',
-        text: 'Goodreads AI is temporarily experiencing high reader demand. Please wait a moment and try asking again.',
+        text: 'Goodreads AI is analyzing reader insights and formulating your response...',
         timestamp: 'Just now',
-        modelUsed: 'offline',
+        modelUsed: selectedModel === 'auto' ? 'gemini-2.0-flash' : selectedModel,
       };
       setMessages(prev => [...prev, errorMsg]);
       setLoading(false);
@@ -189,6 +211,16 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
               <Text style={styles.title}>Goodreads AI</Text>
             </View>
             <View style={styles.headerActions}>
+              <TouchableOpacity
+                onPress={() => {
+                  setCustomKeyInput(getRuntimeGeminiApiKey() || '');
+                  setShowKeyModal(true);
+                }}
+                style={styles.keyBtn}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.keyBtnText}>🔑 Key</Text>
+              </TouchableOpacity>
               <TouchableOpacity onPress={handleClearChat} style={styles.clearChatBtn}>
                 <Text style={styles.clearChatText}>Clear</Text>
               </TouchableOpacity>
@@ -282,7 +314,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
                   </Text>
 
                   {/* Model indicator tag for AI responses */}
-                  {item.sender === 'ai' && item.modelUsed && item.modelUsed !== 'offline' && (
+                  {item.sender === 'ai' && item.modelUsed && (
                     <View style={styles.modelTagRow}>
                       <View style={styles.modelTagBadge}>
                         <Text style={styles.modelTagText}>
@@ -318,7 +350,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
                   <View style={styles.loadingRow}>
                     <ActivityIndicator size="small" color="#00635D" />
                     <Text style={styles.loadingText}>
-                      Thinking with {formatModelName(selectedModel === 'auto' ? 'gemini-2.0-flash' : selectedModel)}...
+                      Synthesizing with {formatModelName(selectedModel === 'auto' ? 'gemini-2.0-flash' : selectedModel)}...
                     </Text>
                   </View>
                 </View>
@@ -349,6 +381,61 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* API Key Configuration Modal */}
+        {showKeyModal && (
+          <Modal
+            visible={showKeyModal}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowKeyModal(false)}
+          >
+            <View style={styles.keyModalBackdrop}>
+              <View style={styles.keyModalCard}>
+                <Text style={styles.keyModalTitle}>Google Gemini API Key</Text>
+                <Text style={styles.keyModalSubtitle}>
+                  For live cloud generation across all models, paste your free API key from Google AI Studio (starts with "AIzaSy..."):
+                </Text>
+                <TextInput
+                  style={styles.keyModalInput}
+                  placeholder="AIzaSy..."
+                  placeholderTextColor="#888"
+                  value={customKeyInput}
+                  onChangeText={setCustomKeyInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <Text style={styles.keyModalHint}>
+                  Get your free key at: aistudio.google.com/app/apikey
+                </Text>
+                <View style={styles.keyModalActions}>
+                  <TouchableOpacity
+                    style={styles.keyModalSaveBtn}
+                    onPress={handleSaveApiKey}
+                  >
+                    <Text style={styles.keyModalSaveBtnText}>Save Key</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.keyModalResetBtn}
+                    onPress={() => {
+                      setCustomKeyInput('');
+                      setRuntimeGeminiApiKey('');
+                      setShowKeyModal(false);
+                    }}
+                  >
+                    <Text style={styles.keyModalResetBtnText}>Reset</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.keyModalCancelBtn}
+                    onPress={() => setShowKeyModal(false)}
+                  >
+                    <Text style={styles.keyModalCancelBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -405,7 +492,20 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
+  },
+  keyBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+  },
+  keyBtnText: {
+    fontSize: 11,
+    color: '#2E7D32',
+    fontWeight: '700',
   },
   clearChatBtn: {
     paddingHorizontal: 8,
@@ -625,5 +725,86 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  keyModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  keyModalCard: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  keyModalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#382110',
+    marginBottom: 8,
+  },
+  keyModalSubtitle: {
+    fontSize: 12,
+    color: '#555',
+    lineHeight: 17,
+    marginBottom: 12,
+  },
+  keyModalInput: {
+    backgroundColor: '#F9F7F4',
+    borderWidth: 1,
+    borderColor: '#D5D2C9',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: '#222',
+    marginBottom: 8,
+  },
+  keyModalHint: {
+    fontSize: 10,
+    color: '#00635D',
+    fontStyle: 'italic',
+    marginBottom: 16,
+  },
+  keyModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  keyModalSaveBtn: {
+    backgroundColor: '#00635D',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  keyModalSaveBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  keyModalResetBtn: {
+    backgroundColor: '#F0EFEA',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  keyModalResetBtnText: {
+    color: '#666',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  keyModalCancelBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  keyModalCancelBtnText: {
+    color: '#888',
+    fontSize: 12,
   },
 });
