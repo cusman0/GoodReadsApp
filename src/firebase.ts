@@ -70,9 +70,10 @@ const AI_PROXY_URL: string | null =
 const AI_DEV_API_KEY: string | null =
   (typeof process !== 'undefined' &&
     (process?.env?.AI_DEV_API_KEY || process?.env?.GEMINI_API_KEY)) ||
+  firebaseConfig.apiKey ||
   null;
 const AI_MODEL: string | null =
-  (typeof process !== 'undefined' && process?.env?.AI_MODEL) || "gemini-1.5-flash";
+  (typeof process !== 'undefined' && process?.env?.AI_MODEL) || "gemini-2.0-flash";
 
 const proxyUrl = AI_PROXY_URL || null;
 const devApiKey = AI_DEV_API_KEY || null;

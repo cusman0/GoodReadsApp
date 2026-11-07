@@ -7,6 +7,8 @@
 import { AI, db } from '../firebase';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
+declare const process: any;
+
 export interface AISummaryResult {
   summaryText: string;
   topics: string[];
@@ -49,14 +51,16 @@ function sanitizeForAI(text?: string): string {
 
 // Candidate models in preference order (handles differences in account availability)
 const CANDIDATE_MODELS = [
-  'gemini-1.5-flash',
   'gemini-2.0-flash',
   'gemini-1.5-flash-8b',
+  'gemini-2.0-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-1.5-flash',
   'gemini-1.5-pro',
 ];
 
 // In-memory cache for the validated working model
-let activeModel: string | null = 'gemini-1.5-flash';
+let activeModel: string | null = 'gemini-2.0-flash';
 
 /**
  * Executes a single generateContent POST request
@@ -97,7 +101,7 @@ async function executeGeminiRequest(
     const errorText = await response.text();
     console.warn(`Gemini endpoint returned ${response.status}:`, errorText);
     if (response.status === 429) {
-      throw new Error('AI rate limit reached. Please wait a few seconds and try again.');
+      throw new Error('AI rate limit reached (status 429 / peak demand).');
     }
     let detailMsg = `Gemini API error (${response.status})`;
     try {
@@ -177,7 +181,8 @@ async function discoverWorkingModel(apiKey: string): Promise<string | null> {
 async function callGemini(
   prompt: string,
   systemInstruction?: string,
-  maxTokens: number = 300
+  maxTokens: number = 300,
+  preferredModel?: string
 ): Promise<string> {
   enforceCooldown();
 
@@ -194,11 +199,11 @@ async function callGemini(
   const key = apiKey!;
 
   // 1. Instant Direct Path: Call the selected/preferred model immediately (0 discovery overhead)
-  const targetModel = activeModel || AI.model || 'gemini-3.8-flash';
+  const targetModel = preferredModel || activeModel || AI.model || 'gemini-2.0-flash';
   try {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${key}`;
     const result = await executeGeminiRequest(endpoint, prompt, systemInstruction, maxTokens);
-    activeModel = targetModel;
+    if (!preferredModel) { activeModel = targetModel; }
     return result;
   } catch (err: any) {
     const isUnavailable =
@@ -207,6 +212,10 @@ async function callGemini(
       err.message?.includes('no longer available') ||
       err.message?.includes('high demand') ||
       err.message?.includes('spikes in demand') ||
+      err.message?.includes('rate limit') ||
+      err.message?.includes('429') ||
+      err.message?.includes('quota') ||
+      err.message?.includes('exhausted') ||
       err.message?.includes('temporarily') ||
       err.message?.includes('overloaded') ||
       err.message?.includes('503') ||
@@ -466,7 +475,8 @@ User: ${cleanQuery}
 Assistant:`;
 
   try {
-    const responseText = await callGemini(fullPrompt, systemInstruction, 600);
+    const chatModel = (typeof process !== 'undefined' && process?.env?.AI_CHAT_MODEL) || 'gemini-2.0-flash';
+    const responseText = await callGemini(fullPrompt, systemInstruction, 600, chatModel);
 
     // Extract citation tags like [P1], [P2]
     const citationMatches = responseText.match(/\[P\d+\]/g) || [];

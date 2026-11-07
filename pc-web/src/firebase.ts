@@ -57,7 +57,7 @@ const devApiKey = AI_DEV_API_KEY || null;
 
 export const AI = {
   proxyUrl,
-  model: AI_MODEL || "gemini-3.8-flash",
+  model: AI_MODEL || "gemini-2.0-flash",
   devApiKey: import.meta.env.DEV ? devApiKey : null, // ← dev key is erased in release builds
   mode: proxyUrl ? "proxy" : import.meta.env.DEV && devApiKey ? "direct" : "unconfigured",
 };
