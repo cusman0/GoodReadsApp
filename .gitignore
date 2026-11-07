@@ -81,3 +81,6 @@ yarn-error.log
 .emv.*
 !.env.example
 !.emv.example
+
+# Built Android Packages
+*.apk

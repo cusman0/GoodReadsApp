@@ -81,8 +81,8 @@ const devApiKey = AI_DEV_API_KEY || null;
 export const AI = {
   proxyUrl,
   model: AI_MODEL,
-  devApiKey: (typeof __DEV__ !== 'undefined' && __DEV__) ? devApiKey : null, // ← dev key is erased in release builds
-  mode: proxyUrl ? "proxy" : (typeof __DEV__ !== 'undefined' && __DEV__) && devApiKey ? "direct" : "unconfigured",
+  devApiKey: devApiKey,
+  mode: proxyUrl ? "proxy" : devApiKey ? "direct" : "unconfigured",
 };
 
 function formatDisplayNameFromEmail(email?: string | null): string {
